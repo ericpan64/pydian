@@ -1,4 +1,3 @@
-import re
 from collections.abc import Collection
 from itertools import chain
 from typing import Any, TypeVar
@@ -55,28 +54,14 @@ def get_keys_containing_class(source: dict[str, Any], cls: type, key_prefix: str
     return res
 
 
-REGEX_TUPLE_CASE_DELIM = re.compile(r"\.?\(|\)\.?")
-
-
-def split_key(key: str) -> list[str]:
+def flatten_list(res: list[list[Any]]) -> list[Any]:
     """
-    Splits keys into individual components. Removes spaces.
-
-    Handles the tuple case, e.g.:
-        "a.b.(c,d)" -> ["a", "b", "c,d"]
+    Flattens a list-of-list
+    E.g. Given:    [[1, 2, 3], [4, 5, 6], None, [7, 8, 9]]
+         Returns:  [1, 2, 3, 4, 5, 6, 7, 8, 9]
     """
-    if "(" in key:
-        split_parts = re.split(REGEX_TUPLE_CASE_DELIM, key)
-        # Remove beginning and trailing empty strings
-        if split_parts:
-            if split_parts[0] == "":
-                split_parts = split_parts[1:]
-            if split_parts[-1] == "":
-                split_parts = split_parts[:-1]
-        # Remove spaces
-        split_parts = [p.replace(" ", "") for p in split_parts]
-        # Split into sublists
-        split_subparts = [p.split(".") if "," not in p else [p] for p in split_parts]
-        return list(chain.from_iterable(split_subparts))
-    else:
-        return key.split(".")
+    if res_without_nones := [l for l in res if (l is not None) and (isinstance(l, list))]:
+        res = list(chain.from_iterable(res_without_nones))
+        # Handle nested case
+        res = flatten_list(res)
+    return res
