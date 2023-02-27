@@ -53,6 +53,7 @@ def get_keys_containing_class(source: dict[str, Any], cls: type, key_prefix: str
                         res |= get_keys_containing_class(item, cls, indexed_keypath)
     return res
 
+
 def flatten_list(res: list[list[Any]]) -> list[Any]:
     """
     Flattens a list-of-list

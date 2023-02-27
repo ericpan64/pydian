@@ -1,9 +1,10 @@
 from typing import Any, Iterable, Sequence
 
+import jmespath
+
 from .lib.types import DROP, KEEP, ApplyFunc, ConditionalCheck
 from .lib.util import flatten_list
 
-import jmespath
 
 def get(
     source: dict[str, Any],
@@ -55,6 +56,7 @@ def get(
     if drop_level and res is None:
         res = drop_level
     return res
+
 
 def _nested_get(source: dict[str, Any], key: str, default: Any = None) -> Any:
     """
