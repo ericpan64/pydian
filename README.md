@@ -54,36 +54,27 @@ payload = {
 }
 
 # Specify your logic as data in a centralized mapping function (dict -> dict)
-def mapping_fn(source: dict[str, Any]) -> dict[str, Any]:
-    return {
-        'res_list': [
-            {
-                'static_value': 'Some static data',
-                'uppercase_nested_val': get(source, 'some.deeply.nested[0].value', apply=str.upper),
-                'unwrapped_list': get(source, 'list_of_objects[*].val'),
-                'maybe_present_value?': get(source, 'somekey.nope.not.there', apply=str.upper),
-                # Use the DROP enum to set objects to `None` relative to the data element
-                'maybe_present_object?': {
-                    'other_static_value': 'More static data', # Without DROP, this will always be present
-                    'maybe_present_value?': get(source, 'somekey.nope.not.there', apply=str.upper, drop_level=DROP.THIS_OBJECT)
-                },
-            }
-        ]
-    }
+mapping_fn = lambda source: {
+    'static_value': 'Some static data',
+    'uppercase_nested_val': get(source, 'some.deeply.nested[0].value', apply=str.upper),
+    'unwrapped_list': get(source, 'list_of_objects[*].val'),
+    'maybe_present_value': get(source, 'somekey.nope.not.there', apply=str.upper),
+    # Use the DROP enum to set objects to `None` relative to the data element
+    'maybe_present_object': {
+        'other_static_value': 'More static data', # Without DROP, this will always be present
+        'maybe_present_value': get(source, 'somekey.nope.not.there', apply=str.upper, drop_level=DROP.THIS_OBJECT)
+    },
+}
 
 # Use the `Mapper` class to get post-processing features like null value removal and conditional dropping
 mapper = Mapper(mapping_fn)
 
 # Get an iterpretable result that syntactically matches the mapping function!
 assert mapper(payload) == {
-    'res_list': [
-        {
-            'static_value': 'Some static data',
-            'uppercase_nested_val': 'HERE!',
-            'unwrapped_list': [1, 2, 3],
-            # Empty values like `None` are removed automatically from the result
-        }
-    ]
+    'static_value': 'Some static data',
+    'uppercase_nested_val': 'HERE!',
+    'unwrapped_list': [1, 2, 3],
+    # Empty values like `None` are removed automatically from the result
 }
 ```
 
@@ -91,15 +82,12 @@ See the [mapping test examples](./tests/test_dicts.py) for a more involved look 
 
 ## `get` Functionality
 
-Pydian defines a special `get` function that provides a simple syntax for:
-- Getting nested items
-    - Chain gets with `.`
-    - Index into lists, e.g. `[0]`, `[-1]`
-    - Unwrap a list of dicts with `[*]`
-    - Get multiple items from a dict at once using `("firstKey", "secondKey")` syntax
+Pydian defines a special `get` function that leverages [JMESPath](https://jmespath.org/) and provides a simple syntax for:
+- Getting nested items using JMESPath syntax (examples [here](https://jmespath.org/examples.html))
 - Chaining successful operations with `apply`
 - Add a pre-condition with `only_if`
 - Specifying conditional dropping with `drop_level` (see [below](./README.md#conditional-dropping))
+- Flattening lists-of-lists with `flatten`
 
 `None` handling is built-in which reduces boilerplate code!
 
@@ -122,18 +110,17 @@ This can be done during value evaluation in `get` which the `Mapper` object clea
 from pydian import DROP, Mapper, get
 
 payload = {
-    'some': 'value'
+    'a': 'b'
 }
 
-def mapping_fn(source: dict) -> dict:
-    return {
-        'object': {
-            # This is always present, but what if we want it removed if another element is missing?
-            'static_value': 'Some value',
-            # Specify in `get` or as an `if` comprehension
-            'maybe_present_value?': get(source, 'some_missing_key', drop_level=DROP.THIS_OBJECT),
-        }
+mapping_fn = lambda source: {
+    'object': {
+        # The static element is always present, but what if we want to conditionally remove it?
+        'static_value': 'Some value',
+        # ... use the DROP enum and the Mapper framework cleans it up!
+        'maybe_present_value?': get(source, 'some_missing_key', drop_level=DROP.THIS_OBJECT),
     }
+}
 
 # Use a Mapper to handle the DROP enum. During handling, correpsonding values are set to `None`
 mapper = Mapper(mapping_fn, remove_empty=False)
