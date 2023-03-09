@@ -34,23 +34,12 @@ assert get(payload, 'somekey.nope.not.there', apply=str.upper) == None
 
 For complex data mapping tasks, the `Mapper` framework provides additional benefits:
 ```python
-from pydian import DROP, Mapper, get
-from typing import Any
+from pydian import Mapper, get
 
 # Same example from above
-payload = {
-    'some': {
-        'deeply': {
-            'nested': [{
-                'value': 'here!'
-            }]
-        }
-    },
-    'list_of_objects': [
-        {'val': 1},
-        {'val': 2},
-        {'val': 3}
-    ]
+payload = { 
+    'some': { 'deeply': { 'nested': [{ 'value': 'here!' }] } },
+    'list_of_objects': [{'val': 1}, {'val': 2}, {'val': 3}]
 }
 
 # Specify your logic as data in a centralized mapping function (dict -> dict)
@@ -58,12 +47,7 @@ mapping_fn = lambda source: {
     'static_value': 'Some static data',
     'uppercase_nested_val': get(source, 'some.deeply.nested[0].value', apply=str.upper),
     'unwrapped_list': get(source, 'list_of_objects[*].val'),
-    'maybe_present_value': get(source, 'somekey.nope.not.there', apply=str.upper),
-    # Use the DROP enum to set objects to `None` relative to the data element
-    'maybe_present_object': {
-        'other_static_value': 'More static data', # Without DROP, this will always be present
-        'maybe_present_value': get(source, 'somekey.nope.not.there', apply=str.upper, drop_level=DROP.THIS_OBJECT)
-    },
+    "optional_value": get(source, "somekey.nope.not.there")
 }
 
 # Use the `Mapper` class to get post-processing features like null value removal and conditional dropping
@@ -73,8 +57,42 @@ mapper = Mapper(mapping_fn)
 assert mapper(payload) == {
     'static_value': 'Some static data',
     'uppercase_nested_val': 'HERE!',
-    'unwrapped_list': [1, 2, 3],
-    # Empty values like `None` are removed automatically from the result
+    'unwrapped_list': [1, 2, 3]
+    # Empty values like `None` are removed from the result by the `Mapper` class
+}
+```
+
+We can do more advanced things like conditional dropping, e.g. continuing the example above:
+
+```python
+# Same example from above
+from pydian import DROP, Mapper, get
+
+# Same example from above
+payload = { 
+    'some': { 'deeply': { 'nested': [{ 'value': 'here!' }] } },
+    'list_of_objects': [{'val': 1}, {'val': 2}, {'val': 3}]
+}
+
+mapping_fn_drop_example = lambda source: {
+    # Check for keys that may or may not be present (without causing a stack trace)
+    "optional_value": get(source, "somekey.nope.not.there"),
+    # Safely apply values only when data is present
+    'optional_value_with_apply': get(source, 'somekey.nope.not.there', apply=str.upper),
+    # Use the DROP enum to set objects to `None` relative to the data element
+    'maybe_present_object': {
+        'other_static_value': 'More static data', # Without DROP, static data is stays present
+        'maybe_present_value': get(source, 'somekey.nope.not.there', apply=str.upper, drop_level=DROP.THIS_OBJECT)
+    },
+}
+
+# The `Mapper` class processes the DROP values
+mapper_drop_example = Mapper(mapping_fn_drop_example)
+
+# Note that failed operations were removed instead of throwing an error.
+# This is useful for optional data fields which data standards can have a lot of!
+assert mapper_drop_example(payload) == {
+    # Empty values like `None` are removed from the result by the `Mapper` class
 }
 ```
 
@@ -87,7 +105,7 @@ Pydian defines a special `get` function that leverages [JMESPath](https://jmespa
 - Chaining successful operations with `apply`
 - Add a pre-condition with `only_if`
 - Specifying conditional dropping with `drop_level` (see [below](./README.md#conditional-dropping))
-- Flattening lists-of-lists with `flatten`
+- Flattening resulting lists-of-lists with `flatten`
 
 `None` handling is built-in which reduces boilerplate code!
 
@@ -109,9 +127,7 @@ This can be done during value evaluation in `get` which the `Mapper` object clea
 ```python
 from pydian import DROP, Mapper, get
 
-payload = {
-    'a': 'b'
-}
+payload = { 'a': 'b' }
 
 mapping_fn = lambda source: {
     'object': {
@@ -126,7 +142,7 @@ mapping_fn = lambda source: {
 mapper = Mapper(mapping_fn, remove_empty=False)
 
 assert mapper(payload) == {
-    'object': None
+    'object': None # as opposed to `{'static_value': 'Some value'}`
 }
 ```
 
