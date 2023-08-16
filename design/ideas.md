@@ -5,30 +5,11 @@ List of some feature/design ideas that aren't a priority now though could be int
 
 Remove from this list and re-scope accordingly once actually actively working an idea.
 
-## Database-like Support
-Support reading from a group of objects, either from SQL or from groups of objects (i.e. NoSQL collections).
-
-Maybe add a wrapper that provides an alternative besides `DataFrames` to work with SQL results (or encourage list of dicts, even with data sharding)?
-
-### Native JOIN Logic Handling
-If this connected to a relational database, it could be really interesting to add a way to join tables via the mapping dictionary, e.g.:
-```python
-join_mapping = {
-    # Join all rows in A where col1=tableB.col1, col2=tableC.col2
-    'tableA': {
-        'col1': 'tableB.col1',
-        'col2': 'tableC.col2'
-    }
-}
-
-# ... and/or somehow process inline. Have an analysis pass, then optimize the query accordingly
-mapping = {
-    "output_col": get('tableA.col1'),
-    "other_col": get('tableB.col1', where_eq='tableA.col1')
-}
-```
-This would be a ton of work though could be interesting
-
+## Data Pipeline wrappers
+- `try_in_order`: a nested try/except without throwing an explicit error
+- `Piper`: a wrapper class that simplifies tracking:
+    - "Failed" operations (`None`). Let stack traces play their course!
+    - "Successful" operations (not `None`)
 
 ## Validation Tool
 Similar to mapping language, have a validation language that is structurally similar to the output.
@@ -78,6 +59,7 @@ mapper = Mapper(map_fn, validator=is_valid_fhir_patient)
 ## Table-based Compatibility
 Idea: Some sort of Pandas/Numpy compatibility (e.g. dataframe way of approaching data interop)
 - Would probably be linked to a csv version of some sort
+- Use pola.rs!
 
 Input:
 ```csv
