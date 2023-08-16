@@ -73,7 +73,14 @@ def _nested_get(source: dict[str, Any], key: str, default: Any = None) -> Any:
     """
     if key.endswith("[*]"):
         key = key.removesuffix("[*]")
-    res = jmespath.search(key, source)
+    has_tuple = "(" in key and ")" in key
+    if has_tuple:
+        key = key.replace("(", "[").replace(")", "]")
+        res = jmespath.search(key, source)
+        if isinstance(res, list):
+            res = tuple(res)
+    else:
+        res = jmespath.search(key, source)
     if isinstance(res, list):
         res = [r if r is not None else default for r in res]
     if res is None:

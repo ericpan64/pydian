@@ -143,6 +143,11 @@ def test_get_single_key_tuple(simple_data: dict[str, Any]) -> None:
         source["data"]["patient"]["id"],
         source["data"]["patient"]["active"],
     ]
+    # Handle tuple case
+    assert get(source, "data.patient.(id,active)") == (
+        source["data"]["patient"]["id"],
+        source["data"]["patient"]["active"],
+    )
     # Allow whitespace within brackets
     assert get(source, "data.patient.[id, active]") == get(source, "data.patient.[id,active]")
     assert get(source, "data.patient.[id,active,missingKey]") == [
