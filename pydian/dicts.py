@@ -7,7 +7,7 @@ from .lib.util import flatten_list
 
 
 def get(
-    source: dict[str, Any],
+    source: dict[str, Any] | list[Any],
     key: str,
     default: Any = None,
     apply: ApplyFunc | Iterable[ApplyFunc] | None = None,
@@ -34,6 +34,11 @@ def get(
 
     Use `flatten` to flatten the final result (e.g. nested lists)
     """
+    # Handle case where source is a list
+    if isinstance(source, list):
+        source = {"_": source}
+        key = "_" + key
+
     res = _nested_get(source, key, default)
 
     if flatten and isinstance(res, list):

@@ -59,6 +59,14 @@ def test_get_index(simple_data: dict[str, Any]) -> None:
         },
     }
 
+def test_get_from_list(list_data: list[Any]) -> None:
+    source = list_data
+    assert get(source, "[*].patient") == [p["patient"] for p in source]
+    assert get(source, "[*].patient.id") == [p["patient"]["id"] for p in source]
+    assert get(source, "[0].patient.id") == source[0]["patient"]["id"]
+    assert get(source, "[-1].patient.id") == source[-1]["patient"]["id"]
+    assert get(source, "[0:2].patient.id") == [p["patient"]["id"] for p in source[0:2]]
+    assert get(source, "[-2:].patient.id") == [p["patient"]["id"] for p in source[-2:]]
 
 def test_nested_get(nested_data: dict[str, Any]) -> None:
     source = nested_data
