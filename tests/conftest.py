@@ -2,6 +2,13 @@ from typing import Any
 
 import pytest
 
+@pytest.fixture(scope="function")
+def list_data() -> list[Any]:
+    return [
+        {"patient": {"id": "abc123", "active": True}},
+        {"patient": {"id": "def456", "active": True}},
+        {"patient": {"id": "ghi789", "active": False}},
+    ]
 
 @pytest.fixture(scope="function")
 def simple_data() -> dict[str, Any]:
