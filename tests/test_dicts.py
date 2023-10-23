@@ -1,10 +1,10 @@
 from typing import Any
 
+import pydash
+
 import pydian.partials as p
 from pydian import Mapper, get
 from pydian.dicts import drop_keys
-
-import pydash
 
 
 def test_get(simple_data: dict[str, Any]) -> None:
@@ -29,10 +29,20 @@ def test_get(simple_data: dict[str, Any]) -> None:
         "CASE_modded": source["data"]["patient"]["id"] + "_modified",
     }
 
+
 def test_get_new_dsl(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
-
+    # Use the pydash.get DSL which allows for array keys, but doesn't use "*"
+    assert (
+        get(source, "list_data[0].patient.id", dsl_fn=pydash.get)
+        == source["list_data"][0]["patient"]["id"]
+    )
+    assert (
+        get(source, ["list_data", 0, "patient", "id"], dsl_fn=pydash.get)
+        == source["list_data"][0]["patient"]["id"]
+    )
+    assert get(source, "list_data[*].patient.id", dsl_fn=pydash.get) == None
 
 
 def test_get_index(simple_data: dict[str, Any]) -> None:

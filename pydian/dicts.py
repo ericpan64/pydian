@@ -1,19 +1,18 @@
-from typing import Any, Iterable, Sequence
-
-import jmespath
+from typing import Any, Callable, Iterable, Sequence
 
 from .lib.types import DROP, KEEP, ApplyFunc, ConditionalCheck
-from .lib.util import flatten_list
+from .lib.util import flatten_list, jmespath_dsl
 
 
 def get(
     source: dict[str, Any] | list[Any],
-    key: str,
+    key: str | Any,
     default: Any = None,
     apply: ApplyFunc | Iterable[ApplyFunc] | None = None,
     only_if: ConditionalCheck | None = None,
     drop_level: DROP | None = None,
     flatten: bool = False,
+    dsl_fn: Callable[[dict[str, Any], Any], Any] = jmespath_dsl,
 ) -> Any:
     """
     Gets a value from the source dictionary using a `.` syntax.
@@ -39,7 +38,7 @@ def get(
         source = {"_": source}
         key = "_" + key
 
-    res = _nested_get(source, key, default)
+    res = _nested_get(source, key, default, dsl_fn)
 
     if flatten and isinstance(res, list):
         res = flatten_list(res)
@@ -63,7 +62,12 @@ def get(
     return res
 
 
-def _nested_get(source: dict[str, Any], key: str, default: Any = None) -> Any:
+def _nested_get(
+    source: dict[str, Any],
+    key: str | Any,
+    default: Any = None,
+    dsl_fn: Callable[[dict[str, Any], Any], Any] = jmespath_dsl,
+) -> Any:
     """
     Expects `.`-delimited string and tries to get the item in the dict.
 
@@ -76,16 +80,21 @@ def _nested_get(source: dict[str, Any], key: str, default: Any = None) -> Any:
         l[*].a.b
       will return the following: [d['a']['b'] for d in l]
     """
-    if key.endswith("[*]"):
-        key = key.removesuffix("[*]")
-    has_tuple = "(" in key and ")" in key
-    if has_tuple:
-        key = key.replace("(", "[").replace(")", "]")
-        res = jmespath.search(key, source)
-        if isinstance(res, list):
-            res = tuple(res)
+    # Assume `key: str`. If not, then trust the custom `dsl_fn` to handle it
+    if isinstance(key, str):
+        if key.endswith("[*]"):
+            key = key.removesuffix("[*]")
+        has_tuple = "(" in key and ")" in key
+        if has_tuple:
+            key = key.replace("(", "[").replace(")", "]")
+            res = dsl_fn(source, key)
+            if isinstance(res, list):
+                res = tuple(res)
+        else:
+            res = dsl_fn(source, key)
     else:
-        res = jmespath.search(key, source)
+        res = dsl_fn(source, key)
+    # DSL-independent cleanup
     if isinstance(res, list):
         res = [r if r is not None else default for r in res]
     if res is None:

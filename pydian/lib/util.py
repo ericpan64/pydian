@@ -2,7 +2,18 @@ from collections.abc import Collection
 from itertools import chain
 from typing import Any, TypeVar
 
+import jmespath
+
 DL = TypeVar("DL", dict[str, Any], list[Any])
+
+
+def jmespath_dsl(source: dict[str, Any], key: str):
+    """
+    Specifies a DSL (domain-specific language) to use when running `get`
+
+    Here, we redefine the `jmespath.search` to be consistent with argument ordering
+    """
+    return jmespath.search(key, source)
 
 
 def remove_empty_values(input: DL) -> DL:
