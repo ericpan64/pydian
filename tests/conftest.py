@@ -2,8 +2,7 @@ from typing import Any
 
 import pytest
 
-@pytest.fixture(scope="function")
-def list_data() -> list[Any]:
+def simple_list() -> list[Any]:
     return [
         {"patient": {"id": "abc123", "active": True}},
         {"patient": {"id": "def456", "active": True}},
@@ -11,14 +10,15 @@ def list_data() -> list[Any]:
     ]
 
 @pytest.fixture(scope="function")
+def list_data() -> list[Any]:
+    return simple_list()
+
+
+@pytest.fixture(scope="function")
 def simple_data() -> dict[str, Any]:
     return {
         "data": {"patient": {"id": "abc123", "active": True}},
-        "list_data": [
-            {"patient": {"id": "abc123", "active": True}},
-            {"patient": {"id": "def456", "active": True}},
-            {"patient": {"id": "ghi789", "active": False}},
-        ],
+        "list_data": simple_list(),
     }
 
 

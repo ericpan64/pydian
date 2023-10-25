@@ -1,19 +1,18 @@
-from typing import Any, Iterable, Sequence
-
-import jmespath
+from typing import Any, Callable, Iterable, Sequence
 
 from .lib.types import DROP, KEEP, ApplyFunc, ConditionalCheck
-from .lib.util import flatten_list
+from .lib.util import flatten_list, jmespath_dsl
 
 
 def get(
     source: dict[str, Any] | list[Any],
-    key: str,
+    key: str | Any,
     default: Any = None,
     apply: ApplyFunc | Iterable[ApplyFunc] | None = None,
     only_if: ConditionalCheck | None = None,
     drop_level: DROP | None = None,
     flatten: bool = False,
+    dsl_fn: Callable[[dict[str, Any], Any], Any] = jmespath_dsl,
 ) -> Any:
     """
     Gets a value from the source dictionary using a `.` syntax.
@@ -26,20 +25,20 @@ def get(
      - Get multiple items using `[firstKey,secondKey]` syntax (outputs as a list)
        The keys within the tuple can also be chained with `.`
 
-    Use `apply` to safely chain operations on a successful get.
-
-    Use `only_if` to conditionally decide if the result should be kept + `apply`-ed.
-
-    Use `drop_level` to specify conditional dropping if get results in None.
-
-    Use `flatten` to flatten the final result (e.g. nested lists)
+    Optional param notes:
+    - `default`: Return value if `key` results in a `None` (before other params apply)
+    - `apply`: Use to safely chain operations on a successful get
+    - `only_if`: Use to conditionally decide if the result should be kept + `apply`-ed.
+    - `drop_level`: Use to specify conditional dropping if get results in None.
+    - `flatten`: Use to flatten the final result (e.g. nested lists)
+    - `dsl_fn`: Use to specify a DSL to "grab" data besides JMESPath
     """
     # Handle case where source is a list
     if isinstance(source, list):
         source = {"_": source}
         key = "_" + key
 
-    res = _nested_get(source, key, default)
+    res = _nested_get(source, key, default, dsl_fn)
 
     if flatten and isinstance(res, list):
         res = flatten_list(res)
@@ -60,36 +59,39 @@ def get(
 
     if drop_level and res is None:
         res = drop_level
+
     return res
 
 
-def _nested_get(source: dict[str, Any], key: str, default: Any = None) -> Any:
+def _nested_get(
+    source: dict[str, Any],
+    key: str | Any,
+    default: Any = None,
+    dsl_fn: Callable[[dict[str, Any], Any], Any] = jmespath_dsl,
+) -> Any:
     """
     Expects `.`-delimited string and tries to get the item in the dict.
 
-    If the dict contains an array, the correct index is expected, e.g. for a dict d:
-        d.a.b[0]
-      will try d['a']['b'][0], where b should be an array with at least 1 item.
+    If using pydian defaults, the following benefits apply:
+    - Tuple support
 
-
-    If [*] is passed, then that means get into each object in the list. E.g. for a list l:
-        l[*].a.b
-      will return the following: [d['a']['b'] for d in l]
+    If you use a custom `dsl_fn`, then logic is entrusted to that function (wgpcgr).
     """
-    if key.endswith("[*]"):
-        key = key.removesuffix("[*]")
-    has_tuple = "(" in key and ")" in key
-    if has_tuple:
+    # Assume `key: str`. If not, then trust the custom `dsl_fn` to handle it
+    if isinstance(key, str) and ("(" in key and ")" in key):
         key = key.replace("(", "[").replace(")", "]")
-        res = jmespath.search(key, source)
+        res = dsl_fn(source, key)
         if isinstance(res, list):
             res = tuple(res)
     else:
-        res = jmespath.search(key, source)
+        res = dsl_fn(source, key)
+
+    # DSL-independent cleanup
     if isinstance(res, list):
         res = [r if r is not None else default for r in res]
     if res is None:
         res = default
+
     return res
 
 

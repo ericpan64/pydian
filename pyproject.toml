@@ -15,6 +15,7 @@ mypy = "^0.982"
 pytest = "^7.1.2"
 pytest-cov = "^3.0.0"
 pre-commit = "^2.20.0"
+pydash = "^7.0.6"
 
 [tool.black]
 line-length = 100
