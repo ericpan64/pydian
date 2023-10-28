@@ -105,3 +105,29 @@ def test_keep_empty_value() -> None:
         "static_val": "Def",
         "empty_list": [],
     }
+
+
+def test_strict(simple_data: dict[str, Any]) -> None:
+    source = simple_data
+
+    def mapping(m: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "CASE_parent_keep": {
+                "CASE_curr_drop": {
+                    "a": DROP.THIS_OBJECT,
+                    "b": "someValue",
+                },
+                "CASE_curr_keep": {"id": get(m, "data.patient.id")},
+            },
+            "CASE_missing": get(m, "key.nope.not.there"),
+        }
+
+    strict_mapper = Mapper(mapping, strict=True)
+    with pytest.raises(ValueError) as exc_info:
+        strict_mapper(source)
+
+    mapper = Mapper(mapping, strict=False)
+
+    assert mapper(source) == {
+        "CASE_parent_keep": {"CASE_curr_keep": {"id": get(source, "data.patient.id")}}
+    }
