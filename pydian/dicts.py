@@ -1,7 +1,9 @@
+import traceback
 from typing import Any, Callable, Iterable, Sequence
 
+from .globs import SharedMapperState, _Global_Mapper_State_Dict
 from .lib.types import DROP, KEEP, ApplyFunc, ConditionalCheck
-from .lib.util import flatten_list, jmespath_dsl
+from .lib.util import encode_stack_trace, flatten_list, jmespath_dsl
 
 
 def get(
@@ -12,7 +14,6 @@ def get(
     only_if: ConditionalCheck | None = None,
     drop_level: DROP | None = None,
     flatten: bool = False,
-    dsl_fn: Callable[[dict[str, Any], Any], Any] = jmespath_dsl,
 ) -> Any:
     """
     Gets a value from the source dictionary using a `.` syntax.
@@ -33,18 +34,20 @@ def get(
     - `flatten`: Use to flatten the final result (e.g. nested lists)
     - `dsl_fn`: Use to specify a DSL to "grab" data besides JMESPath
     """
-    # Handle case where source is a list
-    if isinstance(source, list):
-        source = {"_": source}
-        key = "_" + key
+    # Grab context from `Mapper` classes (if relevant)
+    mapper_state = _get_global_mapper_config()
+    strict = mapper_state.strict if mapper_state else None
+    dsl_fn = mapper_state.custom_dsl_fn if mapper_state else jmespath_dsl
 
     res = _nested_get(source, key, default, dsl_fn)
+    _enforce_strict(res, strict, key)
 
     if flatten and isinstance(res, list):
         res = flatten_list(res)
 
     if res is not None and only_if:
         res = res if only_if(res) else None
+        _enforce_strict(res, strict, key)
 
     if res is not None and apply:
         if not isinstance(apply, Iterable):
@@ -52,6 +55,7 @@ def get(
         for fn in apply:
             try:
                 res = fn(res)
+                _enforce_strict(res, strict, key)
             except Exception as e:
                 raise RuntimeError(f"`apply` call {fn} failed for value: {res} at key: {key}, {e}")
             if res is None:
@@ -63,11 +67,28 @@ def get(
     return res
 
 
+def _enforce_strict(res: Any, strict: bool | None, key: str) -> None:
+    # TODO: Have way of distinguishing failed get vs deliberate `None`
+    if strict and res is None:
+        raise ValueError(f"Strict mode: found `None` for key: {key}")
+
+
+def _get_global_mapper_config() -> SharedMapperState | None:
+    curr_trace = traceback.format_stack()
+    # Iterate through all mappers, and check stack trace with key str
+    for m_id, sms in _Global_Mapper_State_Dict.items():
+        if len(curr_trace) <= sms._trace_len:
+            continue
+        if m_id == encode_stack_trace(curr_trace[: sms._trace_len]):
+            return sms
+    return None
+
+
 def _nested_get(
-    source: dict[str, Any],
+    source: dict[str, Any] | list[Any],
     key: str | Any,
     default: Any = None,
-    dsl_fn: Callable[[dict[str, Any], Any], Any] = jmespath_dsl,
+    dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = jmespath_dsl,
 ) -> Any:
     """
     Expects `.`-delimited string and tries to get the item in the dict.
@@ -78,6 +99,7 @@ def _nested_get(
     If you use a custom `dsl_fn`, then logic is entrusted to that function (wgpcgr).
     """
     # Assume `key: str`. If not, then trust the custom `dsl_fn` to handle it
+    # Handle tuple syntax (if they ask for a tuple, return a tuple)
     if isinstance(key, str) and ("(" in key and ")" in key):
         key = key.replace("(", "[").replace(")", "]")
         res = dsl_fn(source, key)
