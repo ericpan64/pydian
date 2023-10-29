@@ -1,10 +1,15 @@
 import traceback
-from typing import Any
+from typing import Any, Callable
 
 from .dicts import drop_keys, impute_enum_values
 from .globs import SharedMapperState, _Global_Mapper_State_Dict
 from .lib.types import DROP, KEEP, MappingFunc
-from .lib.util import encode_stack_trace, get_keys_containing_class, remove_empty_values
+from .lib.util import (
+    encode_stack_trace,
+    get_keys_containing_class,
+    jmespath_dsl,
+    remove_empty_values,
+)
 
 
 class Mapper:
@@ -13,10 +18,12 @@ class Mapper:
         map_fn: MappingFunc,
         remove_empty: bool = True,
         strict: bool = False,
+        custom_dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = jmespath_dsl,
     ) -> None:
         self.map_fn = map_fn
         self.remove_empty = remove_empty
         self.strict = strict
+        self.custom_dsl_fn = custom_dsl_fn
         self.global_mapper_call_id: str | None = None
         self.global_mapper_call_level: int | None = None
 
@@ -31,7 +38,9 @@ class Mapper:
         self.global_mapper_call_level = len(curr_trace)
         # Update global state
         _Global_Mapper_State_Dict[self.global_mapper_call_id] = SharedMapperState(
-            _trace_len=self.global_mapper_call_level, strict=self.strict
+            _trace_len=self.global_mapper_call_level,
+            strict=self.strict,
+            custom_dsl_fn=self.custom_dsl_fn,
         )
         return None
 

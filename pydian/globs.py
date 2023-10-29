@@ -9,14 +9,14 @@ Some notes:
 """
 
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Callable, Generic, TypeVar
 
 
 @dataclass(frozen=True)
 class SharedMapperState:
     _trace_len: int
     strict: bool
-    # TODO: add dsl function
+    custom_dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any]
 
 
 K = TypeVar("K")

@@ -14,7 +14,6 @@ def get(
     only_if: ConditionalCheck | None = None,
     drop_level: DROP | None = None,
     flatten: bool = False,
-    dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = jmespath_dsl,
 ) -> Any:
     """
     Gets a value from the source dictionary using a `.` syntax.
@@ -38,6 +37,7 @@ def get(
     # Grab context from `Mapper` classes (if relevant)
     mapper_state = _get_global_mapper_config()
     strict = mapper_state.strict if mapper_state else None
+    dsl_fn = mapper_state.custom_dsl_fn if mapper_state else jmespath_dsl
 
     res = _nested_get(source, key, default, dsl_fn)
     _enforce_strict(res, strict, key)
