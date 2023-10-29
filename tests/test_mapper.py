@@ -10,14 +10,14 @@ from pydian.lib.types import DROP, KEEP
 def test_drop(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
-    def mapping(m: dict[str, Any]) -> dict[str, Any]:
+    def mapping(d: dict[str, Any]) -> dict[str, Any]:
         return {
             "CASE_parent_keep": {
                 "CASE_curr_drop": {
                     "a": DROP.THIS_OBJECT,
                     "b": "someValue",
                 },
-                "CASE_curr_keep": {"id": get(m, "data.patient.id")},
+                "CASE_curr_keep": {"id": get(d, "data.patient.id")},
             },
             "CASE_list": [DROP.THIS_OBJECT],
             "CASE_list_of_objects": [
@@ -111,16 +111,16 @@ def test_keep_empty_value() -> None:
 def test_strict(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
-    def mapping(m: dict[str, Any]) -> dict[str, Any]:
+    def mapping(d: dict[str, Any]) -> dict[str, Any]:
         return {
             "CASE_parent_keep": {
                 "CASE_curr_drop": {
                     "a": DROP.THIS_OBJECT,
                     "b": "someValue",
                 },
-                "CASE_curr_keep": {"id": get(m, "data.patient.id")},
+                "CASE_curr_keep": {"id": get(d, "data.patient.id")},
             },
-            "CASE_missing": get(m, "key.nope.not.there"),
+            "CASE_missing": get(d, "key.nope.not.there"),
         }
 
     strict_mapper = Mapper(mapping, strict=True)
@@ -137,13 +137,13 @@ def test_strict(simple_data: dict[str, Any]) -> None:
 def test_custom_dsl_fn(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
-    def mapping(m: dict[str, Any]) -> dict[str, Any]:
+    def mapping(d: dict[str, Any]) -> dict[str, Any]:
         return {
-            "CASE_pydash_1a": get(m, "list_data[0].patient.id"),
+            "CASE_pydash_1a": get(d, "list_data[0].patient.id"),
             # This should succeed with a custom DSL
-            "CASE_pydash_1b": get(m, ["list_data", 0, "patient", "id"]),
+            "CASE_pydash_1b": get(d, ["list_data", 0, "patient", "id"]),
             # This should fail with a custom DSL
-            "CASE_pydian_syntax": get(m, "list_data[*].patient.id"),
+            "CASE_pydian_syntax": get(d, "list_data[*].patient.id"),
         }
 
     custom_dsl_mapper = Mapper(mapping, remove_empty=False, custom_dsl_fn=pydash.get)

@@ -6,24 +6,22 @@ import pydian.partials as p
 
 def test_get(simple_data: dict[str, Any]) -> None:
     source = simple_data
+
     FAIL_DEFAULT_STR = "n/a"
-    res = {
-        "CASE_successful_get": p.get("data.patient.id", apply=str.upper)(source),
-        "CASE_default_get": p.get("something_not_there", default=FAIL_DEFAULT_STR, apply=str.upper)(
-            source
-        ),
-        "CASE_failed_get": p.get("something_not_there", apply=str.upper)(source),
-    }
-    assert res == {
-        "CASE_successful_get": str.upper(source["data"]["patient"]["id"]),
-        "CASE_default_get": str.upper(FAIL_DEFAULT_STR),
-        "CASE_failed_get": None,
-    }
+
+    assert p.get("data.patient.id", apply=str.upper)(source) == str.upper(
+        source["data"]["patient"]["id"]
+    )
+    assert p.get("something_not_there", default=FAIL_DEFAULT_STR, apply=str.upper)(
+        source
+    ) == str.upper(FAIL_DEFAULT_STR)
+    assert p.get("something_not_there", apply=str.upper)(source) is None
 
 
 def test_do() -> None:
     EXAMPLE_STR = "Some String"
     EXAMPLE_INT = 100
+
     # Test passing args or kwargs
     def some_function(first: str, second: int) -> str:
         return f"{first}, {second}!"
@@ -95,6 +93,7 @@ def test_generic_conditional_wrappers() -> None:
     value = {"a": "b", "c": "d"}
     copied_value = deepcopy(value)
     example_key = "a"
+
     assert p.equals(copied_value)(value) == (value == copied_value)
     assert p.not_equal(copied_value)(value) == (value != copied_value)
     assert p.equivalent(copied_value)(value) == (value is copied_value)
