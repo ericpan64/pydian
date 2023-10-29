@@ -8,13 +8,13 @@ from pydian.dicts import drop_keys
 def test_get(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
-    def mapping(m: dict[str, Any]) -> dict[str, Any]:
+    def mapping(d: dict[str, Any]) -> dict[str, Any]:
         return {
             "CASE_constant": 123,
-            "CASE_single": get(m, "data"),
-            "CASE_nested": get(m, "data.patient.id"),
-            "CASE_nested_as_list": [get(m, "data.patient.active")],
-            "CASE_modded": get(m, "data.patient.id", apply=lambda s: s + "_modified"),
+            "CASE_single": get(d, "data"),
+            "CASE_nested": get(d, "data.patient.id"),
+            "CASE_nested_as_list": [get(d, "data.patient.active")],
+            "CASE_modded": get(d, "data.patient.id", apply=lambda s: s + "_modified"),
         }
 
     mapper = Mapper(mapping, remove_empty=True)
@@ -31,17 +31,17 @@ def test_get(simple_data: dict[str, Any]) -> None:
 def test_get_index(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
-    def mapping(m: dict[str, Any]) -> dict[str, Any]:
+    def mapping(d: dict[str, Any]) -> dict[str, Any]:
         return {
-            "first": get(m, "list_data[0].patient"),
-            "second": get(m, "list_data[1].patient"),
-            "out_of_bounds": get(m, "list_data[50].patient"),
-            "negative_index": get(m, "list_data[-1].patient"),
+            "first": get(d, "list_data[0].patient"),
+            "second": get(d, "list_data[1].patient"),
+            "out_of_bounds": get(d, "list_data[50].patient"),
+            "negative_index": get(d, "list_data[-1].patient"),
             "slice": {
-                "both": get(m, "list_data[1:3]"),
-                "left": get(m, "list_data[1:]"),
-                "right": get(m, "list_data[:2]"),
-                "all": get(m, "list_data[:]"),
+                "both": get(d, "list_data[1:3]"),
+                "left": get(d, "list_data[1:]"),
+                "right": get(d, "list_data[:2]"),
+                "all": get(d, "list_data[:]"),
             },
         }
 
@@ -73,21 +73,21 @@ def test_get_from_list(list_data: list[Any]) -> None:
 def test_nested_get(nested_data: dict[str, Any]) -> None:
     source = nested_data
 
-    def mapping(m: dict[str, Any]) -> dict[str, Any]:
+    def mapping(d: dict[str, Any]) -> dict[str, Any]:
         return {
             "CASE_constant": 123,
-            "CASE_unwrap_active": get(m, "data[*].patient.active"),
-            "CASE_unwrap_id": get(m, "data[*].patient.id"),
-            "CASE_unwrap_list": get(m, "data[*].patient.ints"),
-            "CASE_unwrap_list_twice": get(m, "data[*].patient.ints", flatten=True),
-            "CASE_unwrap_list_dict": get(m, "data[*].patient.dicts[*].num"),
-            "CASE_unwrap_list_dict_twice": get(m, "data[*].patient.dicts[*].num", flatten=True),
+            "CASE_unwrap_active": get(d, "data[*].patient.active"),
+            "CASE_unwrap_id": get(d, "data[*].patient.id"),
+            "CASE_unwrap_list": get(d, "data[*].patient.ints"),
+            "CASE_unwrap_list_twice": get(d, "data[*].patient.ints", flatten=True),
+            "CASE_unwrap_list_dict": get(d, "data[*].patient.dicts[*].num"),
+            "CASE_unwrap_list_dict_twice": get(d, "data[*].patient.dicts[*].num", flatten=True),
             # Expect this to get removed
             "CASE_bad_key": {
-                "single": get(m, "missing.key"),
-                "unwrap": get(m, "missing[*].key"),
-                "unwrap_twice": get(m, "missing[*].key[*].here"),
-                "overindex": get(m, "data[8888].patient"),
+                "single": get(d, "missing.key"),
+                "unwrap": get(d, "missing[*].key"),
+                "unwrap_twice": get(d, "missing[*].key[*].here"),
+                "overindex": get(d, "data[8888].patient"),
             },
         }
 
