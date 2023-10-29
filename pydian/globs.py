@@ -25,8 +25,7 @@ V = TypeVar("V")
 
 class ImmutableDict(dict, Generic[K, V]):
     """
-    Global
-    `dict` that can receive new items, and inserted items are immutable
+    Global `dict` that can receive new items, and inserted items are immutable
     """
 
     def __setitem__(self, key, value):
