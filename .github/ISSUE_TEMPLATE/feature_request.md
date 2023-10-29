@@ -1,24 +1,20 @@
-<!-- From: https://github.com/stevemao/github-issue-templates/tree/master -->
-<!--- Provide a general summary of the issue in the Title above -->
-# _Title_
+---
+name: Feature request
+about: Suggest an idea for this project
+title: ''
+labels: ''
+assignees: ''
 
-## Desired Behavior
-<!--- Tell us what should happen -->
+---
 
-## Current Behavior
-<!--- Tell us what happens instead of the expected behavior -->
+**Is your feature request related to a problem? Please describe.**
+A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
 
-## Possible Solution
-<!--- Not obligatory, but suggest a fix/reason for the bug, -->
+**Describe the solution you'd like**
+A clear and concise description of what you want to happen.
 
-## Context (Environment)
-<!--- How has this issue affected you? What are you trying to accomplish? -->
-<!--- Providing context helps us come up with a solution that is most useful in the real world -->
+**Describe alternatives you've considered**
+A clear and concise description of any alternative solutions or features you've considered.
 
-<!--- Provide a general summary of the issue in the Title above -->
-
-## Detailed Description
-<!--- Provide a detailed description of the change or addition you are proposing -->
-
-## Possible Implementation
-<!--- Not obligatory, but suggest an idea for implementing addition or change -->
+**Additional context**
+Add any other context or screenshots about the feature request here.
