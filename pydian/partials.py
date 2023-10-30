@@ -16,6 +16,7 @@ def get(
     apply: ApplyFunc | Iterable[ApplyFunc] | None = None,
     only_if: ConditionalCheck | None = None,
     drop_level: DROP | None = None,
+    flatten: bool | None = None,
 ):
     """
     Partial wrapper around the Pydian `get` function
@@ -26,6 +27,7 @@ def get(
         "apply": apply,
         "only_if": only_if,
         "drop_level": drop_level,
+        "flatten": flatten,
     }
     return partial(pydian.get, **kwargs)
 
