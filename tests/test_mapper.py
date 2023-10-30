@@ -134,6 +134,45 @@ def test_strict(simple_data: dict[str, Any]) -> None:
     }
 
 
+def test_script_deliberate_none() -> None:
+    source = {
+        "has_None": None,
+        "nested_None": {"has_None": None, "has_value": "value"},
+        "nested_list_None": {
+            "some_list": [
+                {"has_None": None},
+                "value",
+                None,
+            ],
+        },
+    }
+
+    def mapping_success(d: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "CASE_keep_None": get(d, "has_None"),
+            "CASE_keep_None_nested": get(d, "nested_None.has_None"),
+            "CASE_keep_None_list": get(d, "nested_list_None.some_list[-1]"),
+            "CASE_keep_None_list_nested": get(d, "nested_list_None.some_list[0].has_None"),
+        }
+
+    mapper = Mapper(mapping_success, strict=True, remove_empty=False)
+
+    assert mapper(source) == {
+        "CASE_keep_None": None,
+        "CASE_keep_None_nested": None,
+        "CASE_keep_None_list": None,
+        "CASE_keep_None_list_nested": None,
+    }
+
+    def mapping_err(d: dict[str, Any]) -> dict[str, Any]:
+        return {"CASE_keep_None": get(d, "has_None"), "CASE_throw_err": get(d, "key.not.found")}
+
+    err_mapper = Mapper(mapping_err, strict=True)
+
+    with pytest.raises(ValueError) as exc_info:
+        err_mapper(source)
+
+
 def test_custom_dsl_fn(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
