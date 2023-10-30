@@ -3,7 +3,7 @@ from typing import Any, Callable, Iterable, Sequence
 
 from .globs import SharedMapperState, _Global_Mapper_State_Dict
 from .lib.types import DROP, KEEP, ApplyFunc, ConditionalCheck
-from .lib.util import encode_stack_trace, flatten_list, jmespath_dsl
+from .lib.util import default_dsl, encode_stack_trace, flatten_list
 
 
 def get(
@@ -37,7 +37,7 @@ def get(
     # Grab context from `Mapper` classes (if relevant)
     mapper_state = _get_global_mapper_config()
     strict = mapper_state.strict if mapper_state else None
-    dsl_fn = mapper_state.custom_dsl_fn if mapper_state else jmespath_dsl
+    dsl_fn = mapper_state.custom_dsl_fn if mapper_state else default_dsl
 
     res = _nested_get(source, key, default, dsl_fn)
     _enforce_strict(res, strict, key)
@@ -88,7 +88,7 @@ def _nested_get(
     source: dict[str, Any] | list[Any],
     key: str | Any,
     default: Any = None,
-    dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = jmespath_dsl,
+    dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = default_dsl,
 ) -> Any:
     """
     Expects `.`-delimited string and tries to get the item in the dict.

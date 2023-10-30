@@ -5,9 +5,9 @@ from .dicts import drop_keys, impute_enum_values
 from .globs import SharedMapperState, _Global_Mapper_State_Dict
 from .lib.types import DROP, KEEP, MappingFunc
 from .lib.util import (
+    default_dsl,
     encode_stack_trace,
     get_keys_containing_class,
-    jmespath_dsl,
     remove_empty_values,
 )
 
@@ -18,7 +18,7 @@ class Mapper:
         map_fn: MappingFunc,
         remove_empty: bool = True,
         strict: bool = False,
-        custom_dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = jmespath_dsl,
+        custom_dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = default_dsl,
     ) -> None:
         self.map_fn = map_fn
         self.remove_empty = remove_empty

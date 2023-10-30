@@ -70,7 +70,7 @@ def flatten_list(res: list[list[Any]]) -> list[Any]:
     return res
 
 
-def jmespath_dsl(source: dict[str, Any] | list[Any], key: str):
+def default_dsl(source: dict[str, Any] | list[Any], key: str):
     """
     Specifies a DSL (domain-specific language) to use when running `get`
 
