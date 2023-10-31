@@ -3,7 +3,7 @@ from typing import Any, Callable, Iterable, Sequence
 
 from .globs import SharedMapperState, _Global_Mapper_State_Dict
 from .lib.types import DROP, KEEP, ApplyFunc, ConditionalCheck
-from .lib.util import encode_stack_trace, flatten_list, jmespath_dsl
+from .lib.util import default_dsl, encode_stack_trace, flatten_list
 
 
 def get(
@@ -37,17 +37,17 @@ def get(
     # Grab context from `Mapper` classes (if relevant)
     mapper_state = _get_global_mapper_config()
     strict = mapper_state.strict if mapper_state else None
-    dsl_fn = mapper_state.custom_dsl_fn if mapper_state else jmespath_dsl
+    dsl_fn = mapper_state.custom_dsl_fn if mapper_state else default_dsl
 
     res = _nested_get(source, key, default, dsl_fn)
-    _enforce_strict(res, strict, key)
+    _enforce_strict(res, strict, key, source)
 
     if flatten and isinstance(res, list):
         res = flatten_list(res)
 
     if res is not None and only_if:
         res = res if only_if(res) else None
-        _enforce_strict(res, strict, key)
+        _enforce_strict(res, strict, key, source)
 
     if res is not None and apply:
         if not isinstance(apply, Iterable):
@@ -55,7 +55,7 @@ def get(
         for fn in apply:
             try:
                 res = fn(res)
-                _enforce_strict(res, strict, key)
+                _enforce_strict(res, strict, key, source)
             except Exception as e:
                 raise RuntimeError(f"`apply` call {fn} failed for value: {res} at key: {key}, {e}")
             if res is None:
@@ -67,10 +67,29 @@ def get(
     return res
 
 
-def _enforce_strict(res: Any, strict: bool | None, key: str) -> None:
-    # TODO: Have way of distinguishing failed get vs deliberate `None`
+def _enforce_strict(
+    res: Any, strict: bool | None, key: str, source: dict[str, Any] | list[Any]
+) -> None:
     if strict and res is None:
-        raise ValueError(f"Strict mode: found `None` for key: {key}")
+        # Check if value is deliberately `None`, otherwise return error
+        tokenized_keypath = _get_tokenized_keypath(key)
+        nested_val: Any = source
+        MISSING_VAL_INDICATOR = "__NOTFOUND__"
+        for k in tokenized_keypath:
+            if nested_val == MISSING_VAL_INDICATOR:
+                break
+            match k:
+                case "*":
+                    # TODO: handle list unwraps - here we'll just stop checking
+                    nested_val = MISSING_VAL_INDICATOR
+                case _:
+                    nested_val = (
+                        nested_val[k]
+                        if (isinstance(k, int) or k in nested_val)
+                        else MISSING_VAL_INDICATOR
+                    )
+        if nested_val is not None:
+            raise ValueError(f"_Strict mode_: invalid key: {key}")
 
 
 def _get_global_mapper_config() -> SharedMapperState | None:
@@ -88,7 +107,7 @@ def _nested_get(
     source: dict[str, Any] | list[Any],
     key: str | Any,
     default: Any = None,
-    dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = jmespath_dsl,
+    dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = default_dsl,
 ) -> Any:
     """
     Expects `.`-delimited string and tries to get the item in the dict.

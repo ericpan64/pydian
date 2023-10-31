@@ -1,6 +1,4 @@
-**Closes Issue: **
-
-# _Title_
+**Closes Issue**:
 
 ## Background
 
