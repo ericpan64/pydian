@@ -39,9 +39,8 @@ def get(
     mapper_state = _get_global_mapper_config()
     # For `strict`, prefer Mapper setting or take local setting
     strict = (mapper_state.strict if mapper_state else None) or strict
-    dsl_fn = mapper_state.custom_dsl_fn if mapper_state else default_dsl
 
-    res = _nested_get(source, key, default, dsl_fn)
+    res = _nested_get(source, key, default)
     _enforce_strict(res, strict, key, source)
 
     if flatten and isinstance(res, list):

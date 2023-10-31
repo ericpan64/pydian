@@ -1,6 +1,5 @@
 from typing import Any
 
-import pydash
 import pytest
 
 from pydian import Mapper, get
@@ -192,24 +191,3 @@ def test_script_deliberate_none() -> None:
 
     with pytest.raises(ValueError) as exc_info:
         err_mapper(source)
-
-
-def test_custom_dsl_fn(simple_data: dict[str, Any]) -> None:
-    source = simple_data
-
-    def mapping(d: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "CASE_pydash_1a": get(d, "list_data[0].patient.id"),
-            # This should succeed with a custom DSL
-            "CASE_pydash_1b": get(d, ["list_data", 0, "patient", "id"]),
-            # This should fail with a custom DSL
-            "CASE_pydian_syntax": get(d, "list_data[*].patient.id"),
-        }
-
-    custom_dsl_mapper = Mapper(mapping, remove_empty=False, custom_dsl_fn=pydash.get)
-
-    assert custom_dsl_mapper(source) == {
-        "CASE_pydash_1a": source["list_data"][0]["patient"]["id"],
-        "CASE_pydash_1b": source["list_data"][0]["patient"]["id"],
-        "CASE_pydian_syntax": None,
-    }

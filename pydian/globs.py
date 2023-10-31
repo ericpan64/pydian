@@ -16,7 +16,6 @@ from typing import Any, Callable, Generic, TypeVar
 class SharedMapperState:
     _trace_len: int
     strict: bool
-    custom_dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any]
 
 
 K = TypeVar("K")

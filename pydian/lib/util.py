@@ -74,7 +74,7 @@ def default_dsl(source: dict[str, Any] | list[Any], key: str):
     """
     Specifies a DSL (domain-specific language) to use when running `get`
 
-    Here, we redefine the `jmespath.search` to be consistent with argument ordering
+    Here, we redefine the `jmespath.search` to be consistent with argument ordering in the repo
     """
     return jmespath.search(key, source)
 
