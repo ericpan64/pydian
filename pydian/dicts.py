@@ -24,7 +24,7 @@ def get(
      - Use `.` to chain gets
      - Index and slice into lists, e.g. `[0]`, `[-1]`, `[:1]`, etc.
      - Iterate through a list using `[*]`
-     - Get multiple items using `[firstKey,secondKey]` syntax (outputs as a list)
+     - Get multiple items using `(firstKey,secondKey)` syntax (outputs as a tuple)
        The keys within the tuple can also be chained with `.`
 
     Optional param notes:
@@ -33,6 +33,7 @@ def get(
     - `only_if`: Use to conditionally decide if the result should be kept + `apply`-ed.
     - `drop_level`: Use to specify conditional dropping if get results in None.
     - `flatten`: Use to flatten the final result (e.g. nested lists)
+    - `strict`: Use to throw `ValueError` instead of returning `None` (also available at `Mapper`-level)
     """
     # Grab context from `Mapper` classes (if relevant)
     mapper_state = _get_global_mapper_config()
