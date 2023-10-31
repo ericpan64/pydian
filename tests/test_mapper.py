@@ -111,6 +111,7 @@ def test_keep_empty_value() -> None:
 def test_strict(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
+    # Test `strict` flag (independent of `get`)
     def mapping(d: dict[str, Any]) -> dict[str, Any]:
         return {
             "CASE_parent_keep": {
@@ -132,6 +133,26 @@ def test_strict(simple_data: dict[str, Any]) -> None:
     assert mapper(source) == {
         "CASE_parent_keep": {"CASE_curr_keep": {"id": get(source, "data.patient.id")}}
     }
+
+    # Test `strict` flag with specific `get` calls
+    def strict_get_mapping(d: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "CASE_parent_keep": {
+                "CASE_curr_drop": {
+                    "a": DROP.THIS_OBJECT,
+                    "b": "someValue",
+                },
+                "CASE_curr_keep": {"id": get(d, "data.patient.id")},
+            },
+            "CASE_missing": get(d, "key.nope.not.there"),
+        }
+
+    strict_get_mapper = Mapper(strict_get_mapping, strict=True)
+    get_mapper = Mapper(strict_get_mapping, strict=False)
+
+    with pytest.raises(ValueError) as exc_info:
+        get_mapper(source)
+        strict_get_mapper(source)
 
 
 def test_script_deliberate_none() -> None:
