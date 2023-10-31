@@ -70,7 +70,6 @@ def get(
 def _enforce_strict(
     res: Any, strict: bool | None, key: str, source: dict[str, Any] | list[Any]
 ) -> None:
-    # TODO: Have way of distinguishing failed get vs deliberate `None`
     if strict and res is None:
         # Check if value is deliberately `None`, otherwise return error
         tokenized_keypath = _get_tokenized_keypath(key)
