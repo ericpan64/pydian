@@ -14,6 +14,7 @@ def get(
     only_if: ConditionalCheck | None = None,
     drop_level: DROP | None = None,
     flatten: bool = False,
+    strict: bool | None = None,
 ) -> Any:
     """
     Gets a value from the source dictionary using a `.` syntax.
@@ -32,11 +33,11 @@ def get(
     - `only_if`: Use to conditionally decide if the result should be kept + `apply`-ed.
     - `drop_level`: Use to specify conditional dropping if get results in None.
     - `flatten`: Use to flatten the final result (e.g. nested lists)
-    - `dsl_fn`: Use to specify a DSL to "grab" data besides JMESPath
     """
     # Grab context from `Mapper` classes (if relevant)
     mapper_state = _get_global_mapper_config()
-    strict = mapper_state.strict if mapper_state else None
+    # For `strict`, prefer Mapper setting or take local setting
+    strict = (mapper_state.strict if mapper_state else None) or strict
     dsl_fn = mapper_state.custom_dsl_fn if mapper_state else default_dsl
 
     res = _nested_get(source, key, default, dsl_fn)

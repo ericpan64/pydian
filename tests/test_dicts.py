@@ -1,7 +1,9 @@
 from typing import Any
 
+import pytest
+
 import pydian.partials as p
-from pydian import Mapper, get
+from pydian import get
 from pydian.dicts import drop_keys
 
 
@@ -176,3 +178,13 @@ def test_get_nested_key_tuple(nested_data: dict[str, Any]) -> None:
     assert get(source, "data[*].patient.dicts[*].[num, inner.msg]") == [
         [[obj["num"], obj["inner"]["msg"]] for obj in d["patient"]["dicts"]] for d in source["data"]
     ]
+
+
+def test_get_strict(nested_data: dict[str, Any]) -> None:
+    source = nested_data
+
+    # Simple key example
+    MISSING_KEY = "some.key.nope.notthere"
+    with pytest.raises(ValueError) as exc_info:
+        get(source, MISSING_KEY, strict=True)
+    assert get(source, MISSING_KEY) == None
