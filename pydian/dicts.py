@@ -8,7 +8,7 @@ from .lib.util import default_dsl, encode_stack_trace, flatten_list
 
 def get(
     source: dict[str, Any] | list[Any],
-    key: str | Any,
+    key: str,
     default: Any = None,
     apply: ApplyFunc | Iterable[ApplyFunc] | None = None,
     only_if: ConditionalCheck | None = None,

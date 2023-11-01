@@ -1,6 +1,6 @@
 from functools import partial
 from itertools import islice
-from typing import Any, Callable, Container, Iterable, Reversible, TypeVar
+from typing import Any, Callable, Container, Iterable, Reversible, TypeAlias, TypeVar
 
 import pydian
 from pydian.lib.types import DROP, ApplyFunc, ConditionalCheck
@@ -90,6 +90,8 @@ def index(idx: int) -> ApplyFunc | Callable[[Reversible], Any]:
 
 
 def equals(value: Any) -> ConditionalCheck:
+    if type(value) == pd.DataFrame:
+        return lambda df: df.equals(value)
     return lambda v: v == value
 
 
@@ -156,3 +158,32 @@ def filter_to_list(func: Callable) -> ApplyFunc | Callable[[Iterable], list[Any]
     """
     _filter_to_list: Callable = lambda fn, it: list(filter(fn, it))
     return partial(_filter_to_list, func)
+
+
+"""
+DataFrame Wrappers
+"""
+
+import pandas as pd
+
+DF: TypeAlias = pd.DataFrame
+
+
+def where(func: ApplyFunc) -> ApplyFunc | Callable[[DF], DF]:
+    return lambda df: df.where(func)
+
+
+def order_by(s: str, ascending: bool = True) -> ApplyFunc | Callable[[DF], DF]:
+    return lambda df: df.sort_values(s, ascending=ascending)
+
+
+def group_by(s: str | list[str]) -> ApplyFunc | Callable[[DF], dict[str | tuple, list[Any]]]:
+    # Ref: https://stackoverflow.com/questions/10373660/converting-a-pandas-groupby-output-from-series-to-dataframe
+    """
+    Returns the dict representation (`dict[str | tuple, list[Any]]`)
+    """
+    return lambda df: df.groupby(s).groups
+
+
+def distinct() -> ApplyFunc | Callable[[DF], DF]:
+    return lambda df: df.drop_duplicates(inplace=False)

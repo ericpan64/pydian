@@ -1,5 +1,5 @@
 import traceback
-from typing import Any, Callable
+from typing import Any
 
 from .dicts import drop_keys, impute_enum_values
 from .globs import SharedMapperState, _Global_Mapper_State_Dict
