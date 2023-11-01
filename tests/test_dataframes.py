@@ -46,6 +46,19 @@ def test_select(simple_dataframe: pd.DataFrame) -> None:
     assert select(source, "*", apply=p.distinct()).equals(source.drop_duplicates())  #  type: ignore
 
 
+def test_select_apply_map(simple_dataframe) -> None:
+    source = simple_dataframe
+    apply_map = {"a": [p.multiply(2), p.add(1)], "b": [str.upper], "d": p.equivalent(None)}
+
+    comp_df = simple_dataframe.copy()
+    comp_df["a"] *= 2
+    comp_df["a"] += 1
+    comp_df["b"] = comp_df["b"].apply(str.upper)
+    comp_df["d"] = comp_df["d"].apply(lambda v: v is None)
+
+    assert select(source, "*", apply=apply_map).equals(comp_df)  #  type: ignore
+
+
 # TODO
 def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
     ...

@@ -2,6 +2,8 @@ from typing import Any, Callable, Iterable
 
 import pandas as pd
 
+import pydian.partials as p
+
 from .lib.types import ApplyFunc, ConditionalCheck
 
 
@@ -9,8 +11,9 @@ def select(
     source: pd.DataFrame,
     key: str,
     default: Any = None,
-    apply: ApplyFunc | Iterable[ApplyFunc]
-    # | dict[str, ApplyFunc | Iterable[ApplyFunc]]
+    apply: ApplyFunc
+    | Iterable[ApplyFunc]
+    | dict[str, ApplyFunc | Iterable[ApplyFunc]]
     | None = None,
     only_if: ConditionalCheck | None = None,
     consume: bool = False,
@@ -45,15 +48,14 @@ def select(
         res = res if only_if(res) else None
 
     if res is not None and apply:
-        if not isinstance(apply, Iterable):
-            apply = (apply,)
-        for fn in apply:
-            try:
-                res = fn(res)
-            except Exception as e:
-                raise RuntimeError(f"`apply` call {fn} failed for value: {res} at key: {key}, {e}")
-            if res is None:
-                break
+        if isinstance(apply, dict) and isinstance(res, pd.DataFrame):
+            # Each key is a column name
+            #  and each value contains a list of operations
+            for k, v in apply.items():
+                # For each column, apply the list of operations (v) to each value
+                res[k] = res[k].apply(p.do(_try_apply, v, key))
+        else:
+            res = _try_apply(res, apply, key)  # type: ignore
 
     return res
 
@@ -63,3 +65,17 @@ def _check_assumptions(source: pd.DataFrame) -> None:
     col_types = {type(c) for c in source.columns}
     if col_types != {str}:
         raise ValueError(f"Column headers need to be `str`, got: {col_types}")
+
+
+def _try_apply(source: Any, apply: ApplyFunc | Iterable[ApplyFunc], key: str) -> Any:
+    res = source
+    if not isinstance(apply, Iterable):
+        apply = (apply,)
+    for fn in apply:
+        try:
+            res = fn(res)
+        except Exception as e:
+            raise RuntimeError(f"`apply` call {fn} failed for value: {res} with key: {key}, {e}")
+        if res is None:
+            break
+    return res
