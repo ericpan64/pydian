@@ -22,6 +22,7 @@ assignees: ''
 
 ## Additional context
 <!--
+Add any other context about the problem here (examples below)
 **Screenshots**: If applicable, add screenshots to help explain your problem.
 
 **Desktop context:**
@@ -35,9 +36,3 @@ assignees: ''
  - Browser [e.g. stock browser, safari]
  - Version [e.g. 22]
  -->
-
-
-
-
-**Additional context**
-<!-- Add any other context about the problem here. -->
