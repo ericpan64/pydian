@@ -11,6 +11,8 @@ def test_select(simple_dataframe: pd.DataFrame) -> None:
     assert select(source, "a, b").equals(source[["a", "b"]])  #  type: ignore
     assert select(source, "*").equals(source)  #  type: ignore
 
+    # TODO: Case where some valid columns, and some invalid?
+
     assert select(source, "non_existant_col", apply=p.equals("thing")) is None
     assert select(source, "non_existant_col", default="thing", apply=p.equals("thing")) == True
     assert (
@@ -59,9 +61,15 @@ def test_select_apply_map(simple_dataframe) -> None:
     assert select(source, "*", apply=apply_map).equals(comp_df)  #  type: ignore
 
 
-# TODO
 def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
-    ...
+    source = simple_dataframe
+
+    init_mem_usage_by_column = source.memory_usage(deep=True)
+    assert source[["a"]].equals(select(source, "a", consume=True))
+    assert "a" not in source.columns
+    assert sum(source.memory_usage(deep=True)) < sum(init_mem_usage_by_column)
+
+    # TODO: Add cases
 
 
 # TODO

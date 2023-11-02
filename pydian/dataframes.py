@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 
 import pandas as pd
 
@@ -29,7 +29,7 @@ def select(
     - Strings represent columns, int represent rows
 
 
-    - `consume`: Remove the original dataframe from memory
+    - `consume`: Remove the original data from the dataframe from memory
     """
     _check_assumptions(source)
 
@@ -41,8 +41,11 @@ def select(
         res = source[parsed_col_list]
         if res.empty:
             res = default
+    # TODO: Case where some valid columns, and some invalid?
     except KeyError:
         res = default
+    if consume:
+        source.drop(columns=parsed_col_list, inplace=True)
 
     if res is not None and only_if:
         res = res if only_if(res) else None
