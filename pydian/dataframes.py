@@ -13,7 +13,7 @@ def select(
     default: Any = None,
     apply: ApplyFunc
     | Iterable[ApplyFunc]
-    | dict[str, ApplyFunc | Iterable[ApplyFunc]]
+    | dict[str, ApplyFunc | Iterable[ApplyFunc] | Any]
     | None = None,
     only_if: ConditionalCheck | None = None,
     consume: bool = False,
@@ -41,11 +41,10 @@ def select(
         res = source[parsed_col_list]
         if res.empty:
             res = default
-    # TODO: Case where some valid columns, and some invalid?
+        elif consume:
+            source.drop(columns=parsed_col_list, inplace=True)
     except KeyError:
         res = default
-    if consume:
-        source.drop(columns=parsed_col_list, inplace=True)
 
     if res is not None and only_if:
         res = res if only_if(res) else None
