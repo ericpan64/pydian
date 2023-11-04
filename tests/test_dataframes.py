@@ -1,7 +1,9 @@
+from copy import deepcopy
+
 import pandas as pd
 
 import pydian.partials as p
-from pydian.dataframes import select
+from pydian.dataframes import inner_join, left_join, select
 
 
 def test_select(simple_dataframe: pd.DataFrame) -> None:
@@ -29,12 +31,16 @@ def test_select(simple_dataframe: pd.DataFrame) -> None:
     #   Most of the times, we expect columns to be persistent (i.e. no "optional" cases)
     assert select(source, "a, non_existant_col") is None
 
-    # WHERE
-    assert source.where(lambda r: r["a"] % 2 == 0).equals(
+    # # Query syntax (WHERE in SQL, filter in Pandas)
+    # assert source[source["a"] == 0]["a"].equals(select(source, "a[?a == 0]"))
+    # assert source[source["a"] % 2 == 0]["a"].equals(select(source, "a[?a % 2 == 0]"))
+
+    # Replace
+    assert source.where(lambda r: r["a"] % 2 == 0, other="Test").equals(
         select(
             source,
             "*",
-            apply=p.where(lambda r: r["a"] % 2 == 0),
+            apply=p.replace_where(lambda r: r["a"] % 2 == 0, "Test"),
         )
     )
 
@@ -85,14 +91,60 @@ def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
 
 
 # TODO
-def test_select_polars(simple_dataframe: pd.DataFrame) -> None:
-    ...
+def test_left_join(simple_dataframe: pd.DataFrame) -> None:
+    source = simple_dataframe
+
+    df_right = pd.DataFrame(
+        {
+            "a": [0, 2, 6, 7],
+            "e": ["foo", "bar", "baz", "qux"],
+        }
+    )
+
+    # `None` cases
+    # # A key is missing from either df
+    assert left_join(source, df_right, on="d") is None, "Expected None since `d` is not in right"
+    assert left_join(source, df_right, on="e") is None, "Expected None since `e` is not in left"
+    assert left_join(source, df_right, on="f") is None, "Expected None since `f` is not in either"
+    assert (
+        left_join(source, df_right, on=["a", "f"]) is None
+    ), "Expected None since `f` is not in either"
+    assert (
+        left_join(source, df_right, on=["e", "f"]) is None
+    ), "Expected None since `f` is not in either"
+    assert (
+        left_join(source, df_right, on=["a", "e"]) is None
+    ), "Expected None since `e` is not in left"
+
+    # Basic join
+    expected = deepcopy(source)
+    expected = expected.merge(df_right, on="a", how="left")
+    result = left_join(source, df_right, on="a")
+
+    assert expected.equals(result)
+
+    # Join resulting in empty DataFrame
+    df_empty_right = pd.DataFrame(columns=["a", "e"])
+    result = left_join(source, df_empty_right, on="a")
+    assert result is None, "Expected None -- resulting DataFrame is empty"
+
+    # # Test `consume=True`
+    # result = left_join(source, df_right, on="a", consume=True)
+    # assert expected.equals(result)
+    # assert df_right.equals(pd.DataFrame({
+    #     "a": [6, 7],
+    #     "e": ["baz", "qux"],
+    # }))
 
 
 # TODO
-def test_join(simple_dataframe: pd.DataFrame) -> None:
-    # Pandas and Pandas
-    # Pandas and Polars
-    # Polars and Pandas
-    # Polars and Polars
+def test_inner_join(simple_dataframe: pd.DataFrame) -> None:
+    ...
+
+
+def test_insert(simple_dataframe: pd.DataFrame) -> None:
+    ...
+
+
+def test_alter(simple_dataframe: pd.DataFrame) -> None:
     ...
