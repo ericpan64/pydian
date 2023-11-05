@@ -142,16 +142,29 @@ def _nested_select(
     source: pd.DataFrame, key: str, default: Any, consume: bool
 ) -> pd.DataFrame | Any:
     res = None
+    # Get operations from key
+    key = key.replace(" ", "")
+    query = None
+    if "~" in key:
+        key, query = key.split("~")
+        query = query.removeprefix("[").removesuffix("]")
+
     # Get columns from syntax
-    parsed_col_list = key.replace(" ", "").split(",")
+    parsed_col_list = list(key.split(","))
+    # parsed_col_list = key.replace(" ", "").split(",")
     if parsed_col_list == ["*"]:
         parsed_col_list = source.columns
     try:
         res = source[parsed_col_list]
         if res.empty:
             res = default
-        elif consume:
-            source.drop(columns=parsed_col_list, inplace=True)
+        else:
+            if query:
+                # Use built-in pandas query function!
+                res = res.query(query)
+            if consume:
+                # TODO: way to consume just the rows that matched?
+                source.drop(columns=parsed_col_list, inplace=True)
     except KeyError:
         res = default
     return res

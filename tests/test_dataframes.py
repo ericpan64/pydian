@@ -32,8 +32,12 @@ def test_select(simple_dataframe: pd.DataFrame) -> None:
     assert select(source, "a, non_existant_col") is None
 
     # # Query syntax (WHERE in SQL, filter in Pandas)
-    # assert source[source["a"] == 0]["a"].equals(select(source, "a[?a == 0]"))
-    # assert source[source["a"] % 2 == 0]["a"].equals(select(source, "a[?a % 2 == 0]"))
+    q1 = select(source, "a ~ [a == 0]")
+    q2 = select(source, "a, b, c ~ [a % 2 == 0]")
+    q3_none = select(source, "non_existant_col ~ [a % 2 == 0]")
+    assert pd.DataFrame(source[source["a"] == 0]["a"]).equals(q1)
+    assert source[source["a"] % 2 == 0][["a", "b", "c"]].equals(q2)
+    assert q3_none is None
 
     # Replace
     assert source.where(lambda r: r["a"] % 2 == 0, other="Test").equals(
@@ -74,20 +78,25 @@ def test_select_apply_map(simple_dataframe: pd.DataFrame) -> None:
 
 def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
     source = simple_dataframe
+    source_two = deepcopy(simple_dataframe)
+    source_ref = deepcopy(simple_dataframe)
 
     init_mem_usage_by_column = source.memory_usage(deep=True)
     assert source[["a"]].equals(select(source, "a", consume=True))
+    assert source.empty == False
     assert "a" not in source.columns
     assert sum(source.memory_usage(deep=True)) < sum(init_mem_usage_by_column)
 
     # Selecting from a missing column will not consume others specified (operation failed)
     assert select(source, "a, b", consume=True) is None
     assert "b" in source.columns
+    assert source_ref["b"].equals(source["b"])
 
     # Selecting multiple columns that are all valid
-    assert source[["b", "c"]].equals(select(source, "b, c", consume=True))
-    assert "b" not in source.columns
-    assert "c" not in source.columns
+    assert source_two.equals(source_ref)
+    assert source_two[["b", "c"]].equals(select(source_two, "b, c", consume=True))
+    assert "b" not in source_two.columns
+    assert "c" not in source_two.columns
 
 
 # TODO
