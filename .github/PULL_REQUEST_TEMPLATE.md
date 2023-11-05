@@ -1,4 +1,4 @@
-**Closes Issue**:
+Closes
 
 ## Background
 

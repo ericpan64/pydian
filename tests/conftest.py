@@ -1,6 +1,8 @@
 from typing import Any
 
+import pandas as pd
 import pytest
+
 
 def simple_list() -> list[Any]:
     return [
@@ -9,9 +11,22 @@ def simple_list() -> list[Any]:
         {"patient": {"id": "ghi789", "active": False}},
     ]
 
+
 @pytest.fixture(scope="function")
 def list_data() -> list[Any]:
     return simple_list()
+
+
+@pytest.fixture(scope="function")
+def simple_dataframe() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "a": [0, 1, 2, 3, 4, 5],
+            "b": ["q", "w", "e", "r", "t", "y"],
+            "c": [True, False, True, False, False, True],
+            "d": [pd.NA, None, None, pd.NA, pd.NA, None],
+        }
+    )
 
 
 @pytest.fixture(scope="function")
