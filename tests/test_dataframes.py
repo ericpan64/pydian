@@ -99,7 +99,6 @@ def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
     assert "c" not in source_two.columns
 
 
-# TODO
 def test_left_join(simple_dataframe: pd.DataFrame) -> None:
     source = simple_dataframe
 
@@ -111,7 +110,6 @@ def test_left_join(simple_dataframe: pd.DataFrame) -> None:
     )
 
     # `None` cases
-    # # A key is missing from either df
     assert left_join(source, df_right, on="d") is None, "Expected None since `d` is not in right"
     assert left_join(source, df_right, on="e") is None, "Expected None since `e` is not in left"
     assert left_join(source, df_right, on="f") is None, "Expected None since `f` is not in either"

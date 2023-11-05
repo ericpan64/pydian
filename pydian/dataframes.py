@@ -71,13 +71,14 @@ def left_join(
     if select(res, "_merge", apply=[p.iloc(None, 0), set]) == {"left_only"}:
         return None
 
-    # Only consume if there was a change
-    if consume:
-        # Only drop rows that were included in the left join
-        # TODO: MAKE SELECT SYNTAX MAGIC MASKING! This doesn't work (yet)
-        matched_rows = select(res, ",".join(on.replace("_merge", "_merge[?_merge == 'both']")))  # type: ignore
-        # TODO: making assumption on indices here, is this a problem?
-        second.drop(index=matched_rows.index, inplace=True)  # type: ignore
+    # # Only consume if there was a change
+    # if consume:
+    #     # Only drop rows that were included in the left join
+    #     matched_rows = select(res, f"{','.join(on)} ~ [_merge == 'both']")  # type: ignore
+    #     # TODO: making assumption on indices here, is this a problem?
+    #     # TODO: ^Yes that was a problem, good intuition! Have to match on the _value_
+    #     if not matched_rows.empty:
+    #         second.drop(index=matched_rows.index, inplace=True)  # type: ignore
 
     res.drop("_merge", axis=1, inplace=True)
 
@@ -155,16 +156,12 @@ def _nested_select(
     if parsed_col_list == ["*"]:
         parsed_col_list = source.columns
     try:
-        res = source[parsed_col_list]
+        res = source.query(query)[parsed_col_list] if query else source[parsed_col_list]
         if res.empty:
             res = default
-        else:
-            if query:
-                # Use built-in pandas query function!
-                res = res.query(query)
-            if consume:
-                # TODO: way to consume just the rows that matched?
-                source.drop(columns=parsed_col_list, inplace=True)
+        elif consume:
+            # TODO: way to consume just the rows that matched?
+            source.drop(columns=parsed_col_list, inplace=True)
     except KeyError:
         res = default
     return res
