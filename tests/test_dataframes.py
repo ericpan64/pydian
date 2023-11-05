@@ -1,9 +1,10 @@
 from copy import deepcopy
 
 import pandas as pd
+import pytest
 
 import pydian.partials as p
-from pydian.dataframes import inner_join, insert, left_join, select
+from pydian.dataframes import alter, inner_join, insert, left_join, select
 
 
 def test_select(simple_dataframe: pd.DataFrame) -> None:
@@ -211,4 +212,22 @@ def test_insert(simple_dataframe: pd.DataFrame) -> None:
 
 
 def test_alter(simple_dataframe: pd.DataFrame) -> None:
-    ...
+    # Test the drop_cols feature of the alter function
+    drop_result: pd.DataFrame = alter(simple_dataframe, drop_cols="a,c")
+    assert "a" not in drop_result.columns
+    assert "c" not in drop_result.columns
+
+    # Test the overwrite_cols feature of the alter function
+    overwrite_result: pd.DataFrame = alter(
+        simple_dataframe, overwrite_cols={"b": ["z", "x", "c", "v", "b", "n"]}
+    )
+    assert all(overwrite_result["b"] == ["z", "x", "c", "v", "b", "n"])
+
+    # Test the add_cols feature of the alter function
+    add_result: pd.DataFrame = alter(simple_dataframe, add_cols={"e": [6, 7, 8, 9, 10, 11]})
+    assert "e" in add_result.columns
+    assert all(add_result["e"] == [6, 7, 8, 9, 10, 11])
+
+    # Test the alter function with invalid input
+    with pytest.raises(ValueError):
+        alter(simple_dataframe, add_cols="not a dictionary")  # type: ignore

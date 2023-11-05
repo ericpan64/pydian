@@ -104,7 +104,7 @@ def inner_join(
 def insert(
     into: pd.DataFrame,
     rows=pd.DataFrame | list[dict[str, Any]],
-    default: Any = pd.NA,
+    na_default: Any = pd.NA,
     consume: bool = False,
 ) -> pd.DataFrame | None:
     """
@@ -116,7 +116,7 @@ def insert(
     """
     if isinstance(rows, list):
         rows = pd.DataFrame(rows)
-    rows.fillna(default, inplace=True)
+    rows.fillna(na_default, inplace=True)
     try:
         _check_assumptions([into, rows])
         if not set(into.columns).intersection(set(rows.columns)):
@@ -127,6 +127,61 @@ def insert(
             rows.drop(index=rows.index, inplace=True)
     except:
         res = None
+    return res
+
+
+def alter(
+    target: pd.DataFrame,
+    overwrite_cols: dict[str, list[Any]] | None = None,
+    add_cols: dict[str, list[Any]] | None = None,
+    na_default: Any = pd.NA,
+    drop_cols: str | list[str] | None = None,
+    consume: bool = False,
+) -> pd.DataFrame | None:
+    """
+    Returns a new copy of a modified database, or `None` if modifications aren't done. E.g.:
+    - If the column already exists when trying to add a new one
+    - If the length of a new column is larger than the target dataframe
+    - ... etc.
+
+    Operations (in-order):
+    - `drop_cols` should be comma-delimited or provide the list of columns
+    - `overwrite_cols` should replace existing columns with provided data (up to that point)
+    - `add_cols` should map the new column name to initial data (missing values will use `na_default`)
+    """
+    _check_assumptions(target)
+    res = target
+    n_rows, _ = res.shape
+    if drop_cols:
+        if isinstance(drop_cols, str):
+            drop_cols = drop_cols.replace(" ", "").split(",")
+        res = res.drop(columns=drop_cols)
+    if overwrite_cols:
+        if not isinstance(overwrite_cols, dict):
+            raise ValueError(f"`overwrite_cols` should be a dict, got: {type(add_cols)}")
+        for cname, cdata in overwrite_cols.items():
+            # Expect column to be there
+            if cname not in target.columns:
+                return None
+            # Expect columns smaller than existing df
+            if len(cdata) > n_rows:
+                return None
+            n_new_rows = len(cdata)
+            res.loc[0:n_new_rows, cname] = cdata
+    if add_cols:
+        if not isinstance(add_cols, dict):
+            raise ValueError(f"`add_cols` should be a dict, got: {type(add_cols)}")
+        for cname, cdata in add_cols.items():
+            # Prevent overwriting an existing column on accident
+            if cname in target.columns:
+                return None
+            # Expect columns smaller than existing df
+            if len(cdata) > n_rows:
+                return None
+            cdata.extend([na_default] * (n_rows - len(cdata)))
+            res[cname] = cdata
+    if consume:
+        target.drop(columns=target.columns, inplace=True)
     return res
 
 
