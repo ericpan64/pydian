@@ -144,9 +144,34 @@ def test_left_join(simple_dataframe: pd.DataFrame) -> None:
     # }))
 
 
-# TODO
 def test_inner_join(simple_dataframe: pd.DataFrame) -> None:
-    ...
+    # Split the simple_dataframe into two DataFrames for joining
+    df1 = simple_dataframe[["a", "b"]]
+    df2 = simple_dataframe[["b", "c"]]
+
+    # Expected result of the inner join
+    expected_result = pd.DataFrame(
+        {
+            "a": [0, 1, 2, 3, 4, 5],
+            "b": ["q", "w", "e", "r", "t", "y"],
+            "c": [True, False, True, False, False, True],
+        }
+    )
+
+    # Perform the inner join
+    result = inner_join(df1, df2, on="b")
+
+    # Check that the result matches the expected result
+    pd.testing.assert_frame_equal(result, expected_result)
+
+    # Test with non-existent column
+    result = inner_join(df1, df2, on="non_existent_column")
+    assert result is None, f"Expected None, but got {result}"
+
+    # Test with empty result
+    df1_empty = df1.head(0)
+    result = inner_join(df1_empty, df2, on="b")
+    assert result is None, f"Expected None, but got {result}"
 
 
 def test_insert(simple_dataframe: pd.DataFrame) -> None:

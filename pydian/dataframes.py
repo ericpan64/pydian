@@ -86,7 +86,7 @@ def left_join(
 
 
 def inner_join(
-    first: pd.DataFrame, second: pd.DataFrame, on: str | list[str], consume: bool = False
+    first: pd.DataFrame, second: pd.DataFrame, on: str | list[str]
 ) -> pd.DataFrame | None:
     """
     Applies an inner join
@@ -96,15 +96,7 @@ def inner_join(
     except KeyError:
         return None
 
-    res = first.merge(second, how="inner", on=on, indicator=True)
-
-    # Only consume if a join happened
-    if consume and not res.empty:
-        # Create a boolean mask indicating whether each row in `first` is also present in `second`
-        fmask = first.isin(second.to_dict(orient="list")).all(axis=1)
-        smask = second.isin(first.to_dict(orient="list")).all(axis=1)
-        first.drop(first[fmask].index, inplace=True)
-        second.drop(second[smask].index, inplace=True)
+    res = first.merge(second, how="inner", on=on, indicator=False)
 
     return res if not res.empty else None
 
