@@ -3,7 +3,7 @@ from copy import deepcopy
 import pandas as pd
 
 import pydian.partials as p
-from pydian.dataframes import inner_join, left_join, select
+from pydian.dataframes import inner_join, insert, left_join, select
 
 
 def test_select(simple_dataframe: pd.DataFrame) -> None:
@@ -175,7 +175,39 @@ def test_inner_join(simple_dataframe: pd.DataFrame) -> None:
 
 
 def test_insert(simple_dataframe: pd.DataFrame) -> None:
-    ...
+    rows_to_insert = [{"a": 6, "b": "u", "c": False, "d": pd.NA}]
+    expected_data = {
+        "a": [0, 1, 2, 3, 4, 5, 6],
+        "b": ["q", "w", "e", "r", "t", "y", "u"],
+        "c": [True, False, True, False, False, True, False],
+        "d": [pd.NA, None, None, pd.NA, pd.NA, None, pd.NA],
+    }
+
+    # Test basic insert functionality
+    result = insert(simple_dataframe, rows_to_insert)
+    pd.DataFrame(expected_data).equals(result)
+
+    # Test consume functionality
+    rows_df = pd.DataFrame(rows_to_insert)
+    result = insert(simple_dataframe, rows_df, consume=True)
+    pd.DataFrame(expected_data).equals(result)
+    assert rows_df.empty, f"Expected rows_df to be empty, but got {rows_df}"
+
+    # Test default value functionality
+    rows_to_insert_default = [{"a": 7, "b": "i"}]
+    expected_data_default = {
+        "a": [0, 1, 2, 3, 4, 5, 7],
+        "b": ["q", "w", "e", "r", "t", "y", "i"],
+        "c": [True, False, True, False, False, True, pd.NA],
+        "d": [pd.NA, None, None, pd.NA, pd.NA, None, pd.NA],
+    }
+    result = insert(simple_dataframe, rows_to_insert_default)
+    pd.DataFrame(expected_data_default).equals(result)
+
+    # Test incompatible columns
+    incompatible_rows = [{"e": 8}]
+    result = insert(simple_dataframe, incompatible_rows)
+    assert result is None, f"Expected None, but got {result}"
 
 
 def test_alter(simple_dataframe: pd.DataFrame) -> None:

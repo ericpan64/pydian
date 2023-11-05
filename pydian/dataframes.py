@@ -89,7 +89,7 @@ def inner_join(
     first: pd.DataFrame, second: pd.DataFrame, on: str | list[str]
 ) -> pd.DataFrame | None:
     """
-    Applies an inner join
+    Applies an inner join. Returns `None` if nothing was joined
     """
     try:
         _pre_merge_checks(first, second, on)
@@ -101,11 +101,43 @@ def inner_join(
     return res if not res.empty else None
 
 
-def _check_assumptions(source: pd.DataFrame) -> None:
-    ## Check for column names that are `str`
-    col_types = {type(c) for c in source.columns}
-    if col_types != {str}:
-        raise ValueError(f"Column headers need to be `str`, got: {col_types}")
+def insert(
+    into: pd.DataFrame,
+    rows=pd.DataFrame | list[dict[str, Any]],
+    default: Any = pd.NA,
+    consume: bool = False,
+) -> pd.DataFrame | None:
+    """
+    Inserts rows into the end of the DataFrame
+
+    For a row, if a value is not specified it will be filled with the specified default
+
+    If the insert operation cannot be done (e.g. incompatible columns), returns `None`
+    """
+    if isinstance(rows, list):
+        rows = pd.DataFrame(rows)
+    rows.fillna(default, inplace=True)
+    try:
+        _check_assumptions([into, rows])
+        if not set(into.columns).intersection(set(rows.columns)):
+            raise ValueError("Input rows have no overlapping columns, skip insert")
+        res = pd.concat([into, rows], ignore_index=True)
+        if consume:
+            # Drop all of the inserted rows
+            rows.drop(index=rows.index, inplace=True)
+    except:
+        res = None
+    return res
+
+
+def _check_assumptions(source: pd.DataFrame | Iterable[pd.DataFrame]) -> None:
+    if isinstance(source, pd.DataFrame):
+        source = (source,)
+    for df in source:
+        ## Check for column names that are `str`
+        col_types = {type(c) for c in df.columns}
+        if col_types != {str}:
+            raise ValueError(f"Column headers need to be `str`, got: {col_types}")
 
 
 def _try_apply(source: Any, apply: ApplyFunc | Iterable[ApplyFunc], key: str) -> Any:
@@ -124,6 +156,7 @@ def _try_apply(source: Any, apply: ApplyFunc | Iterable[ApplyFunc], key: str) ->
 
 def _pre_merge_checks(first: pd.DataFrame, second: pd.DataFrame, on: str | list[str]) -> None:
     # If _any_ of the provided indices aren't there, return `None`
+    _check_assumptions([first, second])
     if isinstance(on, str):
         on = [on]
     for c in on:
