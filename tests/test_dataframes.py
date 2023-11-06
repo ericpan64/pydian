@@ -1,5 +1,6 @@
 from copy import deepcopy
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -12,6 +13,7 @@ def test_select(simple_dataframe: pd.DataFrame) -> None:
 
     assert source[["a"]].equals(select(source, "a"))
     assert source[["a", "b"]].equals(select(source, "a, b"))
+    assert source[["a", "a"]].equals(select(source, "a, a"))
     assert source.equals(select(source, "*"))
 
     assert select(source, "non_existant_col", apply=p.equals("thing")) is None
@@ -98,6 +100,17 @@ def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
     assert source_two[["b", "c"]].equals(select(source_two, "b, c", consume=True))
     assert "b" not in source_two.columns
     assert "c" not in source_two.columns
+
+
+def test_nested_select(nested_dataframe: pd.DataFrame) -> None:
+    single_nesting_res = select(nested_dataframe, "simple_nesting.patient.id")
+    single_nesting_expected = pd.DataFrame(
+        nested_dataframe["simple_nesting"].apply(
+            lambda r: r["patient"]["id"] if isinstance(r, dict) else None
+        )
+    )
+    single_nesting_expected.columns = ["simple_nesting.patient.id"]
+    assert single_nesting_expected.equals(single_nesting_res)
 
 
 def test_left_join(simple_dataframe: pd.DataFrame) -> None:

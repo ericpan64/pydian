@@ -229,14 +229,32 @@ def _nested_select(
     if "~" in key:
         key, query = key.split("~")
         query = query.removeprefix("[").removesuffix("]")
-
     # Get columns from syntax
-    parsed_col_list = list(key.split(","))
-    # parsed_col_list = key.replace(" ", "").split(",")
+    parsed_col_list = key.split(",")
+    orig_col_list = parsed_col_list.copy()
+    # For each column, check if more nesting is used
+    nesting_list: list[str | None] = []
+    for i, c in enumerate(parsed_col_list):
+        if "." in c:
+            cname, nesting = c.split(".", maxsplit=1)
+            parsed_col_list[i] = cname
+            nesting_list.append(nesting)
+        else:
+            nesting_list.append(None)
     if parsed_col_list == ["*"]:
         parsed_col_list = source.columns
+        orig_col_list = source.columns
     try:
         res = source.query(query)[parsed_col_list] if query else source[parsed_col_list]
+        # Apply nesting if applicable
+        if any(nesting_list):
+            for i, nesting in enumerate(nesting_list):  # type: ignore
+                if nesting:
+                    cname = parsed_col_list[i]
+                    res[cname] = res[cname].apply(p.get(nesting))
+        # Rename columns to match exact original strings
+        res.columns = orig_col_list
+        # Post-processing checks
         if res.empty:
             res = default
         elif consume:

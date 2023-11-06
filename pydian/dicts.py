@@ -40,8 +40,11 @@ def get(
     # For `strict`, prefer Mapper setting or take local setting
     strict = (mapper_state.strict if mapper_state else None) or strict
 
-    res = _nested_get(source, key, default)
-    _enforce_strict(res, strict, key, source)
+    if source:
+        res = _nested_get(source, key, default)
+        _enforce_strict(res, strict, key, source)
+    else:
+        res = default
 
     if flatten and isinstance(res, list):
         res = flatten_list(res)
