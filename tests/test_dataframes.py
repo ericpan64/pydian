@@ -105,14 +105,33 @@ def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
 
 
 def test_nested_select(nested_dataframe: pd.DataFrame) -> None:
-    single_nesting_res = select(nested_dataframe, "simple_nesting.patient.id")
+    source = nested_dataframe
+
     single_nesting_expected = pd.DataFrame(
-        nested_dataframe["simple_nesting"].apply(
+        source["simple_nesting"].apply(
             lambda r: r["patient"]["id"] if isinstance(r, dict) else None
         )
     )
     single_nesting_expected.columns = ["simple_nesting.patient.id"]
-    pd.testing.assert_frame_equal(single_nesting_res, single_nesting_expected)
+    pd.testing.assert_frame_equal(
+        select(source, "simple_nesting.patient.id"), single_nesting_expected
+    )
+
+    multi_nesting_expected = source[["simple_nesting", "deep_nesting"]].copy()
+    multi_nesting_expected["simple_nesting"] = multi_nesting_expected["simple_nesting"].apply(
+        lambda r: r["patient"]["id"] if isinstance(r, dict) else None
+    )
+    multi_nesting_expected["deep_nesting"] = multi_nesting_expected["deep_nesting"].apply(
+        lambda r: r["patient"]["dicts"][0]["inner"]["msg"] if isinstance(r, dict) else None
+    )
+    multi_nesting_expected.columns = [
+        "simple_nesting.patient.id",
+        "deep_nesting.patient.dicts[0].inner.msg",
+    ]
+    pd.testing.assert_frame_equal(
+        select(source, "simple_nesting.patient.id, deep_nesting.patient.dicts[0].inner.msg"),
+        multi_nesting_expected,
+    )
 
 
 def test_left_join(simple_dataframe: pd.DataFrame) -> None:

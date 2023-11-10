@@ -56,6 +56,7 @@ def deep_nested_list() -> list[dict[str, Any]]:
                 "active": True,
                 # 'ints' is deliberately missing
                 "dict": {"char": "d", "inner": {"msg": "D!"}},
+                # `dicts` is deliberately len=1 instead of len=2
                 "dicts": [{"num": 7, "text": "seven", "inner": {"msg": "Seven!"}}],
             }
         },
