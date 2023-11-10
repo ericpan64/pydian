@@ -11,10 +11,10 @@ from pydian.dataframes import alter, inner_join, insert, left_join, select
 def test_select(simple_dataframe: pd.DataFrame) -> None:
     source = simple_dataframe
 
-    assert source[["a"]].equals(select(source, "a"))
-    assert source[["a", "b"]].equals(select(source, "a, b"))
-    assert source[["a", "a"]].equals(select(source, "a, a"))
-    assert source.equals(select(source, "*"))
+    pd.testing.assert_frame_equal(select(source, "a"), source[["a"]])
+    pd.testing.assert_frame_equal(source[["a", "b"]], select(source, "a, b"))
+    pd.testing.assert_frame_equal(select(source, "a, a"), source[["a", "a"]])
+    pd.testing.assert_frame_equal(select(source, "*"), source)
 
     assert select(source, "non_existant_col", apply=p.equals("thing")) is None
     assert select(source, "non_existant_col", default="thing", apply=p.equals("thing")) == True
@@ -38,32 +38,34 @@ def test_select(simple_dataframe: pd.DataFrame) -> None:
     q1 = select(source, "a ~ [a == 0]")
     q2 = select(source, "a, b, c ~ [a % 2 == 0]")
     q3_none = select(source, "non_existant_col ~ [a % 2 == 0]")
-    assert pd.DataFrame(source[source["a"] == 0]["a"]).equals(q1)
-    assert source[source["a"] % 2 == 0][["a", "b", "c"]].equals(q2)
+
+    pd.testing.assert_frame_equal(q1, pd.DataFrame(source[source["a"] == 0]["a"]))
+    pd.testing.assert_frame_equal(q2, source[source["a"] % 2 == 0][["a", "b", "c"]])
     assert q3_none is None
 
     # Replace
-    assert source.where(lambda r: r["a"] % 2 == 0, other="Test").equals(
+    pd.testing.assert_frame_equal(
         select(
             source,
             "*",
             apply=p.replace_where(lambda r: r["a"] % 2 == 0, "Test"),
-        )
+        ),
+        source.where(lambda r: r["a"] % 2 == 0, other="Test"),
     )
 
     # ORDER BY
-    assert source.sort_values("a", ascending=False).equals(
-        select(source, "*", apply=p.order_by("a", False))
+    pd.testing.assert_frame_equal(
+        select(source, "*", apply=p.order_by("a", False)), source.sort_values("a", ascending=False)
     )
 
     # GROUP BY
     assert source.groupby("a").groups == select(source, "*", apply=p.group_by("a"))
 
     # "First n"
-    assert source.head(5).equals(select(source, "*", apply=p.keep(5)))
+    pd.testing.assert_frame_equal(select(source, "*", apply=p.keep(5)), source.head(5))
 
     # Distinct
-    assert source.drop_duplicates().equals(select(source, "*", apply=p.distinct()))
+    pd.testing.assert_frame_equal(select(source, "*", apply=p.distinct()), source.drop_duplicates())
 
 
 def test_select_apply_map(simple_dataframe: pd.DataFrame) -> None:
@@ -76,7 +78,7 @@ def test_select_apply_map(simple_dataframe: pd.DataFrame) -> None:
     comp_df["b"] = comp_df["b"].apply(str.upper)
     comp_df["d"] = comp_df["d"].apply(lambda v: v is None)
 
-    assert comp_df.equals(select(source, "*", apply=apply_map))
+    pd.testing.assert_frame_equal(select(source, "*", apply=apply_map), comp_df)
 
 
 def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
@@ -85,7 +87,7 @@ def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
     source_ref = deepcopy(simple_dataframe)
 
     init_mem_usage_by_column = source.memory_usage(deep=True)
-    assert source[["a"]].equals(select(source, "a", consume=True))
+    pd.testing.assert_frame_equal(source[["a"]], select(source, "a", consume=True))
     assert source.empty == False
     assert "a" not in source.columns
     assert sum(source.memory_usage(deep=True)) < sum(init_mem_usage_by_column)
@@ -93,11 +95,11 @@ def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
     # Selecting from a missing column will not consume others specified (operation failed)
     assert select(source, "a, b", consume=True) is None
     assert "b" in source.columns
-    assert source_ref["b"].equals(source["b"])
+    assert source["b"].equals(source_ref["b"])
 
     # Selecting multiple columns that are all valid
     assert source_two.equals(source_ref)
-    assert source_two[["b", "c"]].equals(select(source_two, "b, c", consume=True))
+    pd.testing.assert_frame_equal(source_two[["b", "c"]], select(source_two, "b, c", consume=True))
     assert "b" not in source_two.columns
     assert "c" not in source_two.columns
 
@@ -110,7 +112,7 @@ def test_nested_select(nested_dataframe: pd.DataFrame) -> None:
         )
     )
     single_nesting_expected.columns = ["simple_nesting.patient.id"]
-    assert single_nesting_expected.equals(single_nesting_res)
+    pd.testing.assert_frame_equal(single_nesting_res, single_nesting_expected)
 
 
 def test_left_join(simple_dataframe: pd.DataFrame) -> None:
@@ -142,7 +144,7 @@ def test_left_join(simple_dataframe: pd.DataFrame) -> None:
     expected = expected.merge(df_right, on="a", how="left")
     result = left_join(source, df_right, on="a")
 
-    assert expected.equals(result)
+    pd.testing.assert_frame_equal(result, expected)
 
     # Join resulting in empty DataFrame
     df_empty_right = pd.DataFrame(columns=["a", "e"])

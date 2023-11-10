@@ -82,7 +82,7 @@ def left_join(
 
     res.drop("_merge", axis=1, inplace=True)
 
-    return res if not res.empty else None
+    return pd.DataFrame(res) if not res.empty else None
 
 
 def inner_join(
@@ -251,7 +251,9 @@ def _nested_select(
             for i, nesting in enumerate(nesting_list):  # type: ignore
                 if nesting:
                     cname = parsed_col_list[i]
-                    res[cname] = res[cname].apply(p.get(nesting))
+                    # Prevents `SettingWithCopyWarning`, ref: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+                    res = res.copy()
+                    res.loc[:, cname] = res[cname].apply(p.get(nesting))
         # Rename columns to match exact original strings
         res.columns = orig_col_list
         # Post-processing checks
