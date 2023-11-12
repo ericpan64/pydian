@@ -155,7 +155,6 @@ def alter(
 
     # TODO: add "resort", e.g. {"colName": newPositionInt, "colName1": "<-colName2", "colName3": "colName4->", "colName5": "<~>colName6"}
     # TODO: add "extract", e.g. `->` and `+>` conventions from `select`
-    # TODO: accept pd.Series and overwrite entire column, or accept a DataFrame and overwrite subset
     """
     _check_assumptions(target)
     res = target
