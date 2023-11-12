@@ -133,6 +133,44 @@ def test_nested_select(nested_dataframe: pd.DataFrame) -> None:
         multi_nesting_expected,
     )
 
+    # Extend, and consume source col (->)
+    extend_expected = single_nesting_expected.copy()
+    extend_expected["simple_nesting.patient.active"] = source["simple_nesting"].apply(
+        lambda r: r["patient"]["active"] if isinstance(r, dict) else None
+    )
+    pd.testing.assert_frame_equal(
+        select(source, "simple_nesting -> {patient.id, patient.active}"), extend_expected
+    )
+
+    # # Rename cols
+    extend_expected.columns = ["pid", "pactive"]
+    pd.testing.assert_frame_equal(
+        select(source, "simple_nesting -> {'pid': patient.id, 'pactive': patient.active}"),
+        extend_expected,
+    )
+
+    # Extend, and keep source col (+>)
+    extend_keep_expected = pd.DataFrame(source.copy()["simple_nesting"])
+    extend_keep_expected["simple_nesting.patient.id"] = source["simple_nesting"].apply(
+        lambda r: r["patient"]["id"] if isinstance(r, dict) else None
+    )
+    extend_keep_expected["simple_nesting.patient.active"] = source["simple_nesting"].apply(
+        lambda r: r["patient"]["active"] if isinstance(r, dict) else None
+    )
+    pd.testing.assert_frame_equal(
+        select(source, "simple_nesting +> {patient.id, patient.active}"), extend_keep_expected
+    )
+
+    # # Rename cols
+    extend_keep_expected.rename(
+        columns={"simple_nesting.patient.id": "pid", "simple_nesting.patient.active": "pactive"},
+        inplace=True,
+    )
+    pd.testing.assert_frame_equal(
+        select(source, "simple_nesting +> {'pid': patient.id, 'pactive': patient.active}"),
+        extend_keep_expected,
+    )
+
 
 def test_left_join(simple_dataframe: pd.DataFrame) -> None:
     source = simple_dataframe
