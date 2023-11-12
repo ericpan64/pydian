@@ -57,7 +57,7 @@ def select(
 
 
 def left_join(
-    first: pd.DataFrame, second: pd.DataFrame, on: str | list[str], consume: bool = False
+    first: pd.DataFrame, second: pd.DataFrame, on: str | list[str]
 ) -> pd.DataFrame | None:
     """
     Applies a left join
