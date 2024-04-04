@@ -1,13 +1,16 @@
 [tool.poetry]
 name = "pydian"
-version = "0.3.1"
+version = "0.3.4"
 description = "Library for pythonic data interchange"
 authors = ["Eric Pan <eric.pan@stanford.edu>"]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
 jmespath = "^1.0.1"
-pandas = "^1.5.1"
+pandas = { version = "^2.0.0", optional = true }
+
+[tool.poetry.extras]
+dataframes = ["pandas"]
 
 [tool.poetry.dev-dependencies]
 black = "^23.10.0"

@@ -1,174 +1,46 @@
 # Pydian - pythonic data interchange
 
-_"There are times a program should throw explicit errors, and there are other times it should just keep going..."_ - Some dev, somewhere, at some point in time
+_"Readability counts."_ - Tim Peters in _The Zen of Python_ (`import this`)
 
-Pydian is a pure Python library for readable and sharable data transformations. Pydian reduces boilerplate for data manipulation and provides a framework for expressively mapping data through Python `dict` objects and native sequence comprehensions.
+Pydian is a pure Python library for readable and repeatable data mappings. Pydian reduces boilerplate for data manipulation and provides a framework for expressive data wrangling.
 
-## Data Wrangling
+Using Pydian, developers can collaboratively and incrementally write data mappings that are expressive, safe, and reusable. Similar to how libraries like React were able to streamline UI components for frontend development, Pydian aims to streamline data transformations for backend development.
 
-With Pydian, you can grab and manipulate data from heavily nested dicts using `get`:
-```python
-from pydian import get
+## `get` specific data, then do stuff
 
-# Some arbitrary source dict
-payload = {
-    'some': {
-        'deeply': {
-            'nested': [{
-                'value': 'here!'
-            }]
-        }
-    },
-    'list_of_objects': [
-        {'val': 1},
-        {'val': 2},
-        {'val': 3}
-    ]
-}
+The key idea behind is the following: `get` data from an object, and if it succeeded, do stuff to it.
 
-# Conveniently get values and chain operations
-assert get(payload, 'some.deeply.nested[0].value', apply=str.upper) == 'HERE!'
+That's it! Additional constructs are added for more complex mapping operations (`Mapper`).
 
-# Unwrap list structures with [*]
-assert get(payload, 'list_of_objects[*].val') == [1,2,3]
+What makes this different from regular operations? Pydian is designed with readibility and reusability in mind:
+1. By default, on failure `get` returns `None`. This offers a more flexible alternative to direct indexing (e.g. `array[0]`).
+2. For a specific field, you can concisely fit all of your functional logic into _one line_ of Python. This improves readability and maintainability.
+3. All functions are "pure" and can be effectively reused and imported without side effects. This encapsulates behavior and promotes reusability.
 
-# Safely specify your logic with built-in null checking (handle `None` instead of a stack trace!)
-assert get(payload, 'somekey.nope.not.there', apply=str.upper) == None
-```
+## Developer-friendly API
 
-## Readble Data Mappings
+If you are working with `dict`s, you can use:
+- A [`get`](./pydian/dicts.py) function with [JMESPath](https://jmespath.org/) key syntax. Chain operations on success, else continue with `None`
+- A [`Mapper`](./pydian/mapper.py) class that performs post-processing cleanup on ["empty" values](./pydian/lib/util.py). For nuanced edge cases, condtionally [`DROP`](./pydian/lib/types.py) fields or [`KEEP`](./pydian/lib/util.py) specific values
 
-A key goal of Pydian is ensuring the data transformation code ("data mappings") actually looks like the expected data. The motivation came from mapping [FHIR](https://hl7.org/fhir/) data which is a modern healthcare data standard that deals with a lot of nesting, optionality, and data mappings between other standards.
+(Experimental) If you're tired of writing one-off `lambda` functions, consider using:
+- The `pydian.partials` module which provides (possibly) common 1-input, 1-output functions (`import pydian.partials as p`). A generic `p.do` wrapper creates a partial function which defaults parameters starting from the second parameter (`from functools import partial` starts from the first parameter.)
 
-The goal is to take some esoteric backend code (left) and actually make it look like the actual desired data structure (right):
+(Experimental) If you are working with `pd.DataFrame`s, you can use:
+- A [`select`](./pydian/dataframes.py) function simple SQL-like syntax (`,`-delimited, `~` for conditionals, `*` to get all)
+- Some functions for creating new dataframes (`left_join`, `inner_join`, `insert` for rows, `alter` for cols)
 
-[<img src="design/images/omop-fhir_1.png" alt="Mapping OMOP to FHIR and handling edge cases without Pydian." height="350">](./design/images/omop-fhir_1.png)
-[<img src="design/images/omop-fhir_2.png" alt="Mapping OMOP to FHIR and handling edge cases with Pydian - hopefully much better!" height="350">](./design/images/omop-fhir_2.png)
+> Note: the DataFrame is not included by default. To install, use:
+> `pip install "pydian[dataframes]"`
 
-... and hopefully minimize the time spent in meetings across stakeholders so you can focus on actually coding!
+## Examples
 
-See the [mapping test examples](./tests/test_dicts.py) for a more involved look at some of the features + intended use-cases.
+`dict`s: See [`get` tests](./tests/test_dicts.py) and [`Mapper` tests](./tests/test_mapper.py)
 
-## Detailed Overview
-### `get` Functionality
+(Experimental) `pd.DataFrame`s: See [`select` tests](./tests/test_dataframes.py)
 
-Pydian defines a special `get` function that leverages [JMESPath](https://jmespath.org/) and provides a simple syntax for:
-- Getting nested items using JMESPath syntax (examples [here](https://jmespath.org/examples.html))
-- Chaining successful operations with `apply`
-- Add a pre-condition with `only_if`
-- Specifying conditional dropping with `drop_level` (see [below](./README.md#conditional-dropping))
-- Flattening resulting lists-of-lists with `flatten`
+(Experimental) `pydian.partials`: See [`pydian.partial` tests](./tests/test_partials.py) or snippet below:
 
-`None` handling is built-in which reduces boilerplate code!
-
-### `Mapper` Functionality
-
-The `Mapper` framework provides a consistent way of abstracting mapping steps as well as several useful post-processing steps, including:
-1. [Null value removal](./README.md#null-value-removal): Removing `None`, `""`, `[]`, `{}` values from the final result
-2. [Conditional dropping](./README.md#conditional-dropping): Drop key(s)/object(s) if a specific value is `None`
-
-#### Null value removal
-
-This is just a parameter on the `Mapper` object (`remove_empty`) which defaults to `True`.
-
-An "empty" value is defined in [lib/util.py](./pydian/lib/util.py) and includes: `None`, `""`, `[]`, `{}`
-
-#### Conditional dropping
-
-This can be done during value evaluation in `get` which the `Mapper` object cleans up at runtime:
-```python
-from pydian import DROP, Mapper, get
-
-payload = { 'a': 'b' }
-
-mapping_fn = lambda source: {
-    'object': {
-        # The static element is always present, but what if we want to conditionally remove it?
-        'static_value': 'Some value',
-        # ... use the DROP enum and the Mapper framework cleans it up!
-        'maybe_present_value?': get(source, 'some_missing_key', drop_level=DROP.THIS_OBJECT),
-    }
-}
-
-# Use a Mapper to handle the DROP enum. During handling, correpsonding values are set to `None`
-mapper = Mapper(mapping_fn, remove_empty=False)
-
-assert mapper(payload) == {
-    'object': None # as opposed to `{'static_value': 'Some value'}`
-}
-```
-
-### `Mapper` Example
-
-Here's an arbitrary example of the `Mapper` framework in action:
-```python
-from pydian import Mapper, get
-
-# Same example from above
-payload = { 
-    'some': { 'deeply': { 'nested': [{ 'value': 'here!' }] } },
-    'list_of_objects': [{'val': 1}, {'val': 2}, {'val': 3}]
-}
-
-# Specify your logic as data in a centralized mapping function (dict -> dict)
-mapping_fn = lambda source: {
-    'static_value': 'Some static data',
-    'uppercase_nested_val': get(source, 'some.deeply.nested[0].value', apply=str.upper),
-    'unwrapped_list': get(source, 'list_of_objects[*].val'),
-    "optional_value": get(source, "somekey.nope.not.there")
-}
-
-# Use the `Mapper` class to get post-processing features like null value removal and conditional dropping
-mapper = Mapper(mapping_fn)
-
-# Get an iterpretable result that syntactically matches the mapping function!
-assert mapper(payload) == {
-    'static_value': 'Some static data',
-    'uppercase_nested_val': 'HERE!',
-    'unwrapped_list': [1, 2, 3]
-    # Empty values like `None` are removed from the result by the `Mapper` class
-}
-```
-
-We can do more advanced things like conditional dropping, e.g. continuing the example above:
-
-```python
-# Same example from above
-from pydian import DROP, Mapper, get
-
-# Same example from above
-payload = { 
-    'some': { 'deeply': { 'nested': [{ 'value': 'here!' }] } },
-    'list_of_objects': [{'val': 1}, {'val': 2}, {'val': 3}]
-}
-
-mapping_fn_drop_example = lambda source: {
-    # Check for keys that may or may not be present (without causing a stack trace)
-    "optional_value": get(source, "somekey.nope.not.there"),
-    # Safely apply values only when data is present
-    'optional_value_with_apply': get(source, 'somekey.nope.not.there', apply=str.upper),
-    # Use the DROP enum to set objects to `None` relative to the data element
-    'maybe_present_object': {
-        'other_static_value': 'More static data', # Without DROP, static data is stays present
-        'maybe_present_value': get(source, 'somekey.nope.not.there', apply=str.upper, drop_level=DROP.THIS_OBJECT)
-    },
-}
-
-# The `Mapper` class processes the DROP values
-mapper_drop_example = Mapper(mapping_fn_drop_example)
-
-# Note that failed operations were removed instead of throwing an error.
-# This is useful for optional data fields which data standards can have a lot of!
-assert mapper_drop_example(payload) == {
-    # Empty values like `None` are removed from the result by the `Mapper` class
-}
-```
-
-## `pydian.partials` Library
-
-For quick operations, it's pretty common to write a bunch of `lambda` functions (e.g. writing something like `lambda x: x == 1` to check if something equals 1). However, this can get cumbersome and messy to manage at scale.
-
-As a convenience, Pydian provides library of standard wrappers that quickly provide 1-input, 1-output functions:
 ```python
 from pydian import get
 import pydian.partials as p
@@ -182,7 +54,7 @@ source = {
     ]
 }
 
-# Standardize how the parital functions are written for simpler management
+# Standardize how the partial functions are written for simpler management
 assert p.equals(1)(1) == True
 assert p.equivalent(False)(False) == True
 assert get(source, 'some_values', apply=p.index(0), only_if=p.contains(350)) == 250
@@ -191,8 +63,12 @@ assert get(source, 'some_values', apply=p.index(1)) == 350
 assert get(source, 'some_values', apply=p.keep(2)) == [250, 350]
 ```
 
+## Future Work
+
+After 1.0, Pydian will be considered done (barring other community contributions 😃)
+
 There may be further language support in the future (e.g. JS, Rust, Go, Julia, etc.) which could make this pattern even more useful (though still very much tbd!)
 
-## Issues
+## Contact
 
-Please submit a GitHub Issue for any bugs + feature requests and we'll take a look!
+Please submit a GitHub Issue for any bugs + feature requests 🙏
