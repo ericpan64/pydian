@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: '3.10'
           cache: 'poetry'
-      - name: Install Python packages
-        run: poetry install
+      - name: Install Python packages (including dataframes extras)
+        run: poetry install --extras dataframes
       - name: Run tests
         run: poetry run pytest
