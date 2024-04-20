@@ -10,6 +10,35 @@ Using Pydian, developers can collaboratively and incrementally write data mappin
 
 The key idea behind is the following: `get` data from an object, and if it succeeded, do stuff to it.
 
+```python
+from pydian import get
+
+# Some arbitrary source dict
+payload = {
+    'some': {
+        'deeply': {
+            'nested': [{
+                'value': 'here!'
+            }]
+        }
+    },
+    'list_of_objects': [
+        {'val': 1},
+        {'val': 2},
+        {'val': 3}
+    ]
+}
+
+# Conveniently get values and chain operations
+assert get(payload, 'some.deeply.nested[0].value', apply=str.upper) == 'HERE!'
+
+# Unwrap list structures with [*]
+assert get(payload, 'list_of_objects[*].val') == [1,2,3]
+
+# Safely specify your logic with built-in null checking (handle `None` instead of a stack trace!)
+assert get(payload, 'some.deeply.nested[100].value', apply=str.upper) == None
+```
+
 That's it! Additional constructs are added for more complex mapping operations (`Mapper`).
 
 What makes this different from regular operations? Pydian is designed with readibility and reusability in mind:
