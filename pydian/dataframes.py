@@ -57,9 +57,7 @@ def select(
     return res
 
 
-def left_join(
-    first: pd.DataFrame, second: pd.DataFrame, on: str | list[str]
-) -> pd.DataFrame | None:
+def left_join(first: pd.DataFrame, second: pd.DataFrame, on: str | list[str]) -> pd.DataFrame | Err:
     """
     Applies a left join
 
@@ -67,14 +65,14 @@ def left_join(
     """
     try:
         _pre_merge_checks(first, second, on)
-    except KeyError:
-        return None
+    except KeyError as e:
+        return Err(f"Failed pre-merge checks: {str(e)}")
 
     res = first.merge(second, how="left", on=on, indicator=True)
 
     # If there were no matches, then return `None`
     if select(res, "_merge", apply=[p.iloc(None, 0), set]) == {"left_only"}:
-        return None
+        return Err("No matching columns")
 
     # # Only consume if there was a change
     # if consume:
@@ -87,23 +85,23 @@ def left_join(
 
     res.drop("_merge", axis=1, inplace=True)
 
-    return pd.DataFrame(res) if not res.empty else None
+    return pd.DataFrame(res) if not res.empty else Err("Empty dataframe")
 
 
 def inner_join(
     first: pd.DataFrame, second: pd.DataFrame, on: str | list[str]
-) -> pd.DataFrame | None:
+) -> pd.DataFrame | Err:
     """
     Applies an inner join. Returns `None` if nothing was joined
     """
     try:
         _pre_merge_checks(first, second, on)
-    except KeyError:
-        return None
+    except KeyError as e:
+        return Err(f"Failed pre-merge checks: {str(e)}")
 
     res = first.merge(second, how="inner", on=on, indicator=False)
 
-    return res if not res.empty else None
+    return res if not res.empty else Err("Empty dataframe")
 
 
 def insert(
@@ -111,7 +109,7 @@ def insert(
     rows=pd.DataFrame | list[dict[str, Any]],
     na_default: Any = pd.NA,
     consume: bool = False,
-) -> pd.DataFrame | None:
+) -> pd.DataFrame | Err:
     """
     Inserts rows into the end of the DataFrame
 
@@ -130,8 +128,8 @@ def insert(
         if consume:
             # Drop all of the inserted rows
             rows.drop(index=rows.index, inplace=True)
-    except:
-        res = None
+    except BaseException as e:
+        res = Err(f"Error when inserting: {str(e)}")
     return res
 
 
@@ -154,7 +152,7 @@ def alter(
     - `overwrite_cols` should replace existing columns with provided data (up to that point)
     - `add_cols` should map the new column name to initial data (missing values will use `na_default`)
 
-    # TODO: add "resort", e.g. {"colName": newPositionInt, "colName1": "<-colName2", "colName3": "colName4->", "colName5": "<~>colName6"}
+    # TODO: add "reorder", e.g. {"colName": newPositionInt, "colName1": "<-colName2", "colName3": "colName4->", "colName5": "<~>colName6"}
     # TODO: add "extract", e.g. `->` and `+>` conventions from `select`
     """
     _check_assumptions(target)
@@ -206,8 +204,14 @@ def alter(
                     res[cname] = cdata
                 case pd.Series():
                     res.insert(new_idx, cdata.name, cdata)
+    # Check that something happened, otherwise return Err
+    #  (also checks that source wasn't mutated)
+    # Don't consume if no changes are made
+    # if res == target:
+    #     res = Err("No modifications made")
     if consume:
         target.drop(columns=target.columns, inplace=True)
+
     return res
 
 
