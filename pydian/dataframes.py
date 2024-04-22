@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import Any, Iterable
 
 import pandas as pd
+from result import Err
 
 import pydian.partials as p
 
@@ -14,14 +15,14 @@ REGEX_COMMA_EXCLUDE_BRACKETS = r",(?![^{}]*\})"
 def select(
     source: pd.DataFrame,
     key: str,
-    default: Any = None,
+    default: Any = Err("Default Err: key didn't match"),
     apply: ApplyFunc
     | Iterable[ApplyFunc]
     | dict[str, ApplyFunc | Iterable[ApplyFunc] | Any]
     | None = None,
     only_if: ConditionalCheck | None = None,
     consume: bool = False,
-) -> pd.DataFrame | None:
+) -> pd.DataFrame | Err:
     """
     Gets a subset of a DataFrame. The following conditions apply:
     1. Columns must have names, otherwise an exception will be raised
@@ -40,10 +41,10 @@ def select(
 
     res = _nested_select(source, key, default, consume)
 
-    if res is not None and only_if:
-        res = res if only_if(res) else None
+    if not isinstance(res, Err) and only_if:
+        res = res if only_if(res) else Err("`only_if` check did not pass")
 
-    if res is not None and apply:
+    if not isinstance(res, Err) and apply:
         if isinstance(apply, dict) and isinstance(res, pd.DataFrame):
             # Each key is a column name
             #  and each value contains a list of operations
