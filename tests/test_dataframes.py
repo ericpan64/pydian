@@ -3,6 +3,7 @@ from copy import deepcopy
 import numpy as np
 import pandas as pd
 import pytest
+from result import Err
 
 import pydian.partials as p
 from pydian.dataframes import alter, inner_join, insert, left_join, select
@@ -16,32 +17,32 @@ def test_select(simple_dataframe: pd.DataFrame) -> None:
     pd.testing.assert_frame_equal(select(source, "a, a"), source[["a", "a"]])
     pd.testing.assert_frame_equal(select(source, "*"), source)
 
-    assert select(source, "non_existant_col", apply=p.equals("thing")) is None
+    assert isinstance(select(source, "non_existant_col", apply=p.equals("thing")), Err)
     assert select(source, "non_existant_col", default="thing", apply=p.equals("thing")) == True
-    assert select(source, "non_existant_col", consume=True) is None
-    assert (
+    assert isinstance(select(source, "non_existant_col", consume=True), Err)
+    assert isinstance(
         select(
             source,
             "non_existant_col",
             default="",
             apply=p.equals("thing"),
             only_if=p.equals("thing"),
-        )
-        is None
+        ),
+        Err,
     )
 
     # A single non-existant column will cause the entire operation to fail and return None
     #   Most of the times, we expect columns to be persistent (i.e. no "optional" cases)
-    assert select(source, "a, non_existant_col") is None
+    assert isinstance(select(source, "a, non_existant_col"), Err)
 
     # # Query syntax (WHERE in SQL, filter in Pandas)
     q1 = select(source, "a ~ [a == 0]")
     q2 = select(source, "a, b, c ~ [a % 2 == 0]")
-    q3_none = select(source, "non_existant_col ~ [a % 2 == 0]")
+    q3_err = select(source, "non_existant_col ~ [a % 2 == 0]")
 
     pd.testing.assert_frame_equal(q1, pd.DataFrame(source[source["a"] == 0]["a"]))
     pd.testing.assert_frame_equal(q2, source[source["a"] % 2 == 0][["a", "b", "c"]])
-    assert q3_none is None
+    assert isinstance(q3_err, Err)
 
     # Replace
     pd.testing.assert_frame_equal(
@@ -93,7 +94,7 @@ def test_select_consume(simple_dataframe: pd.DataFrame) -> None:
     assert sum(source.memory_usage(deep=True)) < sum(init_mem_usage_by_column)
 
     # Selecting from a missing column will not consume others specified (operation failed)
-    assert select(source, "a, b", consume=True) is None
+    assert isinstance(select(source, "a, b", consume=True), Err)
     assert "b" in source.columns
     assert source["b"].equals(source_ref["b"])
 
