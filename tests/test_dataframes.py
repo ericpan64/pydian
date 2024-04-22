@@ -184,18 +184,24 @@ def test_left_join(simple_dataframe: pd.DataFrame) -> None:
     )
 
     # `None` cases
-    assert left_join(source, df_right, on="d") is None, "Expected None since `d` is not in right"
-    assert left_join(source, df_right, on="e") is None, "Expected None since `e` is not in left"
-    assert left_join(source, df_right, on="f") is None, "Expected None since `f` is not in either"
-    assert (
-        left_join(source, df_right, on=["a", "f"]) is None
-    ), "Expected None since `f` is not in either"
-    assert (
-        left_join(source, df_right, on=["e", "f"]) is None
-    ), "Expected None since `f` is not in either"
-    assert (
-        left_join(source, df_right, on=["a", "e"]) is None
-    ), "Expected None since `e` is not in left"
+    assert isinstance(
+        left_join(source, df_right, on="d"), Err
+    ), "Expected Err since `d` is not in right"
+    assert isinstance(
+        left_join(source, df_right, on="e"), Err
+    ), "Expected Err since `e` is not in left"
+    assert isinstance(
+        left_join(source, df_right, on="f"), Err
+    ), "Expected Err since `f` is not in either"
+    assert isinstance(
+        left_join(source, df_right, on=["a", "f"]), Err
+    ), "Expected Err since `f` is not in either"
+    assert isinstance(
+        left_join(source, df_right, on=["e", "f"]), Err
+    ), "Expected Err since `f` is not in either"
+    assert isinstance(
+        left_join(source, df_right, on=["a", "e"]), Err
+    ), "Expected Err since `e` is not in left"
 
     # Basic join
     expected = deepcopy(source)
@@ -207,7 +213,7 @@ def test_left_join(simple_dataframe: pd.DataFrame) -> None:
     # Join resulting in empty DataFrame
     df_empty_right = pd.DataFrame(columns=["a", "e"])
     result = left_join(source, df_empty_right, on="a")
-    assert result is None, "Expected None -- resulting DataFrame is empty"
+    assert isinstance(result, Err), "Expected Err -- resulting DataFrame is empty"
 
     # # Test `consume=True`
     # result = left_join(source, df_right, on="a", consume=True)
@@ -240,12 +246,12 @@ def test_inner_join(simple_dataframe: pd.DataFrame) -> None:
 
     # Test with non-existent column
     result = inner_join(df1, df2, on="non_existent_column")
-    assert result is None, f"Expected None, but got {result}"
+    assert isinstance(result, Err), f"Expected Err, but got {result}"
 
     # Test with empty result
     df1_empty = df1.head(0)
     result = inner_join(df1_empty, df2, on="b")
-    assert result is None, f"Expected None, but got {result}"
+    assert isinstance(result, Err), f"Expected Err, but got {result}"
 
 
 def test_insert(simple_dataframe: pd.DataFrame) -> None:
@@ -281,7 +287,7 @@ def test_insert(simple_dataframe: pd.DataFrame) -> None:
     # Test incompatible columns
     incompatible_rows = [{"e": 8}]
     result = insert(simple_dataframe, incompatible_rows)
-    assert result is None, f"Expected None, but got {result}"
+    assert isinstance(result, Err), f"Expected None, but got {result}"
 
 
 def test_alter(simple_dataframe: pd.DataFrame) -> None:
