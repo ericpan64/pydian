@@ -1,7 +1,5 @@
 # Pydian - pythonic data interchange
 
-_"Readability counts."_ - Tim Peters in _The Zen of Python_ (`import this`)
-
 Pydian is a pure Python library for readable and repeatable data mappings. Pydian reduces boilerplate for data manipulation and provides a framework for expressive data wrangling.
 
 Using Pydian, developers can collaboratively and incrementally write data mappings that are expressive, safe, and reusable. Similar to how libraries like React were able to streamline UI components for frontend development, Pydian aims to streamline data transformations for backend development.
@@ -55,18 +53,18 @@ If you are working with `dict`s, you can use:
 (Experimental) If you're tired of writing one-off `lambda` functions, consider using:
 - The `pydian.partials` module which provides (possibly) common 1-input, 1-output functions (`import pydian.partials as p`). A generic `p.do` wrapper creates a partial function which defaults parameters starting from the second parameter (`from functools import partial` starts from the first parameter.)
 
-(Experimental) If you are working with `pd.DataFrame`s, you can use:
+(Experimental) If you are working with `pl.DataFrame`s, you can use:
 - A [`select`](./pydian/dataframes.py) function simple SQL-like syntax (`,`-delimited, `~` for conditionals, `*` to get all)
 - Some functions for creating new dataframes (`left_join`, `inner_join`, `insert` for rows, `alter` for cols)
 
-> Note: the DataFrame is not included by default. To install, use:
+> Note: the DataFrame module is not included by default. To install, use:
 > `pip install "pydian[dataframes]"`
 
 ## Examples
 
 `dict`s: See [`get` tests](./tests/test_dicts.py) and [`Mapper` tests](./tests/test_mapper.py)
 
-(Experimental) `pd.DataFrame`s: See [`select` tests](./tests/test_dataframes.py)
+(Experimental) `pl.DataFrame`s: See [`select` tests](./tests/test_dataframes.py)
 
 (Experimental) `pydian.partials`: See [`pydian.partial` tests](./tests/test_partials.py) or snippet below:
 

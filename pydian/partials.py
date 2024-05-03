@@ -90,8 +90,8 @@ def index(idx: int) -> ApplyFunc | Callable[[Reversible], Any]:
 
 
 def equals(value: Any) -> ConditionalCheck:
-    if type(value) == pd.DataFrame:
-        return lambda df: df.equals(value)
+    # if type(value) == pl.DataFrame:
+    #     return lambda df: df.equals(value)
     return lambda v: v == value
 
 
@@ -164,41 +164,41 @@ def filter_to_list(func: Callable) -> ApplyFunc | Callable[[Iterable], list[Any]
 DataFrame Wrappers
 """
 
-import pandas as pd
+# import polars as pl
 
-DF: TypeAlias = pd.DataFrame
-DFRow: TypeAlias = pd.Series
-
-
-def replace_where(
-    func: ApplyFunc | Callable[[DFRow], Any], with_val: Any
-) -> ApplyFunc | Callable[[DF], DF]:
-    return lambda df: df.where(func, other=with_val)
+# DF: TypeAlias = pl.DataFrame
+# DFRow: TypeAlias = pl.Series
 
 
-def order_by(s: str, ascending: bool = True) -> ApplyFunc | Callable[[DF], DF]:
-    return lambda df: df.sort_values(s, ascending=ascending)
+# def replace_where(
+#     func: ApplyFunc | Callable[[DFRow], Any], with_val: Any
+# ) -> ApplyFunc | Callable[[DF], DF]:
+#     return lambda df: df.where(func, other=with_val)
 
 
-def group_by(s: str | list[str]) -> ApplyFunc | Callable[[DF], dict[str | tuple, list[Any]]]:
-    # Ref: https://stackoverflow.com/questions/10373660/converting-a-pandas-groupby-output-from-series-to-dataframe
-    """
-    Returns the dict representation (`dict[str | tuple, list[Any]]`)
-    """
-    return lambda df: df.groupby(s).groups
+# def order_by(s: str, ascending: bool = True) -> ApplyFunc | Callable[[DF], DF]:
+#     return lambda df: df.sort_values(s, ascending=ascending)
 
 
-def distinct() -> ApplyFunc | Callable[[DF], DF]:
-    return lambda df: df.drop_duplicates(inplace=False)
+# def group_by(s: str | list[str]) -> ApplyFunc | Callable[[DF], dict[str | tuple, list[Any]]]:
+#     # Ref: https://stackoverflow.com/questions/10373660/converting-a-pandas-groupby-output-from-series-to-dataframe
+#     """
+#     Returns the dict representation (`dict[str | tuple, list[Any]]`)
+#     """
+#     return lambda df: df.groupby(s).groups
 
 
-def iloc(ridx: int | None = None, cidx: int | None = None) -> ApplyFunc | Callable[[DF], DF]:
-    has_row_idx, has_col_idx = ridx is not None, cidx is not None
-    if not (has_row_idx or has_col_idx):
-        raise ValueError(f"At least one of ridx and cidx need to be given, got: {ridx} {cidx}")
-    res = lambda df: df.iloc[ridx, cidx]
-    if has_row_idx:
-        res = lambda df: df.iloc[ridx, :]
-    elif has_col_idx:
-        res = lambda df: df.iloc[:, cidx]
-    return res
+# def distinct() -> ApplyFunc | Callable[[DF], DF]:
+#     return lambda df: df.drop_duplicates(inplace=False)
+
+
+# def iloc(ridx: int | None = None, cidx: int | None = None) -> ApplyFunc | Callable[[DF], DF]:
+#     has_row_idx, has_col_idx = ridx is not None, cidx is not None
+#     if not (has_row_idx or has_col_idx):
+#         raise ValueError(f"At least one of ridx and cidx need to be given, got: {ridx} {cidx}")
+#     res = lambda df: df.iloc[ridx, cidx]
+#     if has_row_idx:
+#         res = lambda df: df.iloc[ridx, :]
+#     elif has_col_idx:
+#         res = lambda df: df.iloc[:, cidx]
+#     return res

@@ -1,6 +1,6 @@
 from typing import Any
 
-import pandas as pd
+import polars as pl
 import pytest
 
 
@@ -69,25 +69,25 @@ def list_data() -> list[Any]:
 
 
 @pytest.fixture(scope="function")
-def simple_dataframe() -> pd.DataFrame:
-    return pd.DataFrame(
+def simple_dataframe() -> pl.DataFrame:
+    return pl.DataFrame(
         {
             "a": [0, 1, 2, 3, 4, 5],
             "b": ["q", "w", "e", "r", "t", "y"],
             "c": [True, False, True, False, False, True],
-            "d": [pd.NA, None, None, pd.NA, pd.NA, None],
+            "d": [None, None, None, None, None, None],
         }
     )
 
 
 @pytest.fixture(scope="function")
-def nested_dataframe() -> pd.DataFrame:
-    return pd.DataFrame(
+def nested_dataframe() -> pl.DataFrame:
+    return pl.DataFrame(
         {
-            # Wrap in `pd.Series` to allow for different lengths, backfill with `NaN`
-            "simple_nesting": pd.Series(simple_nested_list()),  # len: 3
-            "deep_nesting": pd.Series(deep_nested_list()),  # len: 4
-            "a": pd.Series([0, 1, 2, 3, 4]),  # len: 5
+            # Wrap in `pl.Series` to allow for different lengths, backfill with `NaN`
+            "simple_nesting": pl.Series(simple_nested_list()),  # len: 3
+            "deep_nesting": pl.Series(deep_nested_list()),  # len: 4
+            "a": pl.Series([0, 1, 2, 3, 4]),  # len: 5
         }
     )
 
