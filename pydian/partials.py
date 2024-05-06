@@ -1,6 +1,7 @@
+from collections.abc import Callable, Container, Iterable, Reversible
 from functools import partial
 from itertools import islice
-from typing import Any, Callable, Container, Iterable, Reversible, TypeAlias, TypeVar
+from typing import Any, TypeVar
 
 import pydian
 from pydian.lib.types import DROP, ApplyFunc, ConditionalCheck

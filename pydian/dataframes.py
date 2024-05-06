@@ -1,7 +1,9 @@
-import ast
+# import ast
 import re
-from collections import defaultdict
-from typing import Any, Iterable
+
+# from collections import defaultdict
+from collections.abc import Iterable
+from typing import Any
 
 import polars as pl
 from result import Err
