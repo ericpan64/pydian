@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Callable, TypeAlias
+from typing import Any, TypeAlias
 
 ApplyFunc: TypeAlias = Callable[[Any], Any]
 ConditionalCheck: TypeAlias = Callable[[Any], bool]
