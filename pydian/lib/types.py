@@ -2,6 +2,8 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeAlias
 
+from result import Err, Ok
+
 ApplyFunc: TypeAlias = Callable[[Any], Any]
 ConditionalCheck: TypeAlias = Callable[[Any], bool]
 MappingFunc: TypeAlias = Callable[..., dict[str, Any]]
@@ -50,3 +52,15 @@ class KEEP:
 
     def __init__(self, v: Any):
         self.value = v
+
+
+# # TODO - do we need these?
+# class Ok_Truthy(Ok):
+
+#     def __bool__(self) -> bool:
+#         return True
+
+# class Err_Falsy(Err):
+
+#     def __bool__(self) -> bool:
+#         return False
