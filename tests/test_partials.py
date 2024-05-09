@@ -102,6 +102,8 @@ def test_generic_conditional_wrappers() -> None:
     assert p.not_contains(example_key)(copied_value) == (example_key not in value)
     assert p.contained_in(copied_value)(example_key) == (example_key in value)
     assert p.not_contained_in(copied_value)(example_key) == (example_key not in value)
+    assert p.isinstance_of(dict)(value) == isinstance(value, dict)
+    assert p.isinstance_of(str)(example_key) == isinstance(example_key, str)
 
 
 def test_iterable_wrappers() -> None:
