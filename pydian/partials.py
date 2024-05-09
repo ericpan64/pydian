@@ -1,7 +1,7 @@
 from collections.abc import Callable, Container, Iterable, Reversible
 from functools import partial
 from itertools import islice
-from typing import Any, TypeVar
+from typing import Any, Type, TypeVar
 
 import pydian
 from pydian.lib.types import DROP, ApplyFunc, ConditionalCheck
@@ -138,6 +138,10 @@ def not_contains(value: Any) -> ConditionalCheck:
 
 def not_contained_in(container: Container) -> ConditionalCheck:
     return lambda v: v not in container
+
+
+def isinstance_of(type_: Type) -> ConditionalCheck:
+    return lambda v: isinstance(v, type_)
 
 
 """
