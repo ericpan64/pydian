@@ -33,6 +33,13 @@ def get(
     return partial(pydian.get, **kwargs)
 
 
+def echo(x):
+    """
+    Returns the input value. Used as part of functional pipelines
+    """
+    return x
+
+
 """
 Generic Wrappers
 """
