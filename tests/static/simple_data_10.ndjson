@@ -1,0 +1,10 @@
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }
+{ "data": {"patient": {"id": "abc123", "active": true}}, "list_data": [ {"patient": {"id": "abc123", "active": true}}, {"patient": {"id": "def456", "active": true}}, {"patient": {"id": "ghi789", "active": false}} ] }

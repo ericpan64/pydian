@@ -1,9 +1,8 @@
 from copy import deepcopy
 
 import polars as pl
-import pytest
 from polars.testing import (
-    assert_frame_equal,  # Do `type: ignore` to gnore the `Err` case
+    assert_frame_equal,  # Do `type: ignore` to ignore the `Err` case
 )
 from result import Err
 
