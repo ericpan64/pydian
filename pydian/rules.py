@@ -396,8 +396,12 @@ class IsRequired(Rule):
                 res = deepcopy(other)
                 res._constraints.add(RuleConstraint.REQUIRED)  # type: ignore
             case _:
-                res = super().__and__(other)
-                res._set_constraint = RuleGroupConstraint.ALL_OF  # type: ignore
+                # Check callable case here (cast into a `Rule`)
+                if not isinstance(other, RuleGroup) and callable(other):
+                    res = Rule.init_specific(other, RuleConstraint.REQUIRED)
+                else:
+                    res = super().__and__(other)
+                    res._set_constraint = RuleGroupConstraint.ALL_OF  # type: ignore
         return res
 
     def __rand__(self, other):
@@ -460,18 +464,33 @@ class InRange(Rule):
 
 
 class MaxCount(Rule):
-    def __init__(self, upper: int):
-        super().__init__(p.lte(upper))
+    def __init__(
+        self,
+        upper: int,
+        constraints: RuleConstraint | set[RuleConstraint] | None = None,
+        at_key: str | None = None,
+    ):
+        super().__init__(p.lte(upper), constraints, at_key)
 
 
 class MinCount(Rule):
-    def __init__(self, lower: int):
-        super().__init__(p.gte(lower))
+    def __init__(
+        self,
+        lower: int,
+        constraints: RuleConstraint | set[RuleConstraint] | None = None,
+        at_key: str | None = None,
+    ):
+        super().__init__(p.gte(lower), constraints, at_key)
 
 
 class IsType(Rule):
-    def __init__(self, typ: type, at_key: str | None = None):
-        super().__init__(p.isinstance_of(typ), at_key=at_key)
+    def __init__(
+        self,
+        typ: type,
+        constraints: RuleConstraint | set[RuleConstraint] | None = None,
+        at_key: str | None = None,
+    ):
+        super().__init__(p.isinstance_of(typ), constraints, at_key)
 
 
 class InSet(Rule):
@@ -497,7 +516,7 @@ def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
 
 
 def _list_to_rulegroup(
-    l: list[Callable | Rule | RuleGroup | dict | list], key_prefix: str = ""
+    l: list[Callable | Rule | RuleGroup | dict | list], key_prefix: str | None = None
 ) -> RuleGroup:
     """
     Given a list, compress it into a single `RuleGroup`
@@ -507,14 +526,16 @@ def _list_to_rulegroup(
       (for more specific constraints: use a nested `RuleGroup`)
     """
     # TODO: Check the key is getting applied correctly
-    res = RuleGroup(constraint=RuleGroupConstraint.ONE_OF)
+    res = RuleGroup(constraint=RuleGroupConstraint.ONE_OF, at_key=key_prefix)
     for it in l:
-        at_key = f"{key_prefix}[*]"  # Should be applied to every item in the list
+        # TODO: does this even work / is this even needed?
+        at_key = f"[*]"  # Should be applied to every item in the list
         match it:
             case Rule():
                 it._key = at_key
                 res.append(it)
             case RuleGroup():
+                it._key = at_key
                 res = it
             case dict():
                 res.append(_dict_to_rulegroup(it, at_key))
@@ -529,32 +550,29 @@ def _list_to_rulegroup(
     return res
 
 
-def _dict_to_rulegroup(d: dict[str, Rule | RuleGroup], key_prefix: str = "") -> RuleGroup:
+def _dict_to_rulegroup(d: dict[str, Rule | RuleGroup], key_prefix: str | None = None) -> RuleGroup:
     """
     Given a dict, compress it into a single `RuleGroup` with key information saved
 
     NOTE: expect this dict to be 1-layer (i.e. not contain other dicts) -- other dicts should
       be encompassed in a `RuleGroup`
     """
-    res = RuleGroup()
+    res = RuleGroup(at_key=key_prefix)
     for k, v in d.items():
-        if key_prefix:
-            k = f"{key_prefix}.{k}"
+        at_key = k
         match v:
-            case Rule():
-                v._key = k
-                res.append(v)
-            case RuleGroup():
+            case Rule() | RuleGroup():
+                v._key = at_key
                 res.append(v)
             case dict():
-                res.append(IsType(dict, at_key=k))
-                res.append(_dict_to_rulegroup(v, key_prefix=k))
+                res.append(IsType(dict, at_key=at_key))
+                res.append(_dict_to_rulegroup(v, key_prefix=at_key))
             case list():
                 res.append(IsType(list, at_key=k))
-                res.append(_list_to_rulegroup(v, key_prefix=k))
+                res.append(_list_to_rulegroup(v, key_prefix=at_key))
             case _:
                 if callable(v):
-                    res.append(Rule.init_specific(v, at_key=k))
+                    res.append(Rule.init_specific(v, at_key=at_key))
                 else:
                     # Exact value check
                     res.append(Rule(p.equals(v), at_key=k))
