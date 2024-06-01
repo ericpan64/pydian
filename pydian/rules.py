@@ -1,5 +1,8 @@
-from __future__ import annotations
+from __future__ import (  # Used to recursively type annotate (e.g. `Rule` in `class Rule`)
+    annotations,
+)
 
+import inspect
 from collections.abc import Callable, Collection, Iterable
 from copy import deepcopy
 from enum import Enum
@@ -8,8 +11,6 @@ from typing import Any
 from result import Err, Ok
 
 import pydian.partials as p
-
-from .dicts import get
 
 
 class RuleConstraint(Enum):
@@ -87,10 +88,14 @@ class Rule:
             return Err(f"Rule {self} failed with exception: {e}")
         return Err(f"Rule {self} failed, got falsy value: {res}")
 
-    # TODO: be careful with making this iterable by default -- not really a container
-    # def __iter__(self):
-    #     """Iterate over the constraints"""
-    #     return iter(self._constraints)
+    def __repr__(self) -> str:
+        # NOTE: can only grab source for saved files, not in repl
+        #  So the function needs to be saved on a file
+        #  See: https://stackoverflow.com/a/335159
+        try:
+            return f"{self._fn}:`{inspect.getsource(self._fn)}`"
+        except:
+            return f"{self._fn} (Rule)"
 
     def __hash__(self):
         return hash((self._fn, frozenset(self._constraints), self._key))
@@ -98,12 +103,27 @@ class Rule:
     def __eq__(self, other: Rule | Any):
         if isinstance(other, Rule):
             # Rules are the same based on the code and the applied constraints
-            # TODO: This will not work if there are different variable names for lambdas,
-            #    e.g. the `__code__` object for `lambda x: None` is different from `lambda y: None`
-            return (other._fn.__code__ == self._fn.__code__) and (
-                other._constraints == self._constraints
-            )
+            # TODO: I _think_ this will work, though need to test more thoroughly
+            #   e.g. this won't work for built-in callables like `str`, `bool`
+            try:
+                return other._fn.__code__.co_code == self._fn.__code__.co_code
+            except:
+                return other._fn == self._fn
         return NotImplemented
+
+    @staticmethod
+    def init_specific(
+        v: Any, constraint: RuleConstraint | None = None, at_key: str | None = None
+    ) -> Rule:
+        """
+        Generically returns a more specific rule when possible
+        """
+        # TODO: think about other cases + abstractions?
+        if isinstance(v, type):
+            res = IsType(v, at_key)  # type: ignore
+        else:
+            res = Rule(v, constraint, at_key)  # type: ignore
+        return res
 
     @staticmethod
     def combine(
@@ -115,22 +135,15 @@ class Rule:
         Combines a `Rule` with another value. By default, `RuleGroupConstraint.ALL_OF` is used,
           so all contained optional `Rule`s become REQUIRED by default.
 
+        The new RuleGroup will contain the original Rule + extras based on the cases below.
+
         Here are the expected cases:
-        - `Rule` r1 & `Rule` r2 -> `RuleGroup` {r1, r2}
-        - `Rule` r1 & `RuleGroup` rs2 -> `RuleGroup` {r1, rs2}
-        - `Rule` r1 & `dict` d2 -> `RuleGroup` {r1, dt2, drs2},
-            where `dt2` is a typecheck, and `drs2` is a `RuleGroup` derived from the contents of `d2`
-            `drs2` has the corresponding `key_prefix` property filled with the key information
-        - `Rule` r1 & `list` l2 -> `RuleGroup` {r1, lt2, lrs2}
-            where `lt2` is a typecheck,  and `lrs2` is a `RuleGroup` derived from the contents of `l2`
-            `lrs2` has `key_prefix` specifying which items of the list it should be applied to.
-                `[]` -> List itself,
-                `[:]` -> All items within the list,
-                ... else support regular list slicing
-        - `Rule` r1 & `Callable` c2 -> `RuleGroup` {r1, rc2}
-            where `rc2` is the Callable wrapped as an optional `Rule`
-        - `Rule` r1 & `Any` a2 -> `RuleGroup` {r1, ae2}
-            where `ae2` is an equality check
+        1. & Rule | RuleGroup -> Add it
+        2. & type -> Add type check
+        3. & dict -> Add 1) type check, 2) contents of dict
+        4. & list -> Add 1) type check, 2) contents of list
+        5. & Callable -> Add the callable as a Rule
+        6. & some primitive -> Add an equality check for the primitive
         """
         res = RuleGroup(rule, set_constraint)
         match other:
@@ -140,19 +153,19 @@ class Rule:
                 res.append(IsType(other))
             case dict():
                 # Add the typecheck
-                res.append(Rule(lambda x: isinstance(x, dict)))
+                res.append(IsType(dict))
                 # For each item in dict, save key information and add to res
-                drs = _dict_to_RuleGroup(other)
+                drs = _dict_to_rulegroup(other)
                 res.append(drs)
             case list():
                 # Add the typecheck
-                res.append(Rule(lambda x: isinstance(x, list)))
+                res.append(IsType(list))
                 # For each item in list, save key information and add to res
-                lrs = _list_to_RuleGroup(other)
+                lrs = _list_to_rulegroup(other)
                 res.append(lrs)
             case _:
                 if callable(other):
-                    res.append(Rule(other))
+                    res.append(Rule.init_specific(other))
                 else:
                     # Exact value check
                     res.append(Rule(p.equals(other)))
@@ -196,35 +209,47 @@ class RuleGroup(list):
 
     def __init__(
         self,
-        items: Rule | RuleGroup | Collection[Rule | RuleGroup] | None = None,
+        items: Rule | RuleGroup | Callable | Collection[Rule | RuleGroup | Callable] | None = None,
         constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF,
         at_key: str | None = None,
     ):
         self._set_constraint = constraint
         self._key = at_key
+
         # Type-check and handle items
         if items:
+            res = []
             # Check items
-            if isinstance(items, Iterable):
-                for it in items:
-                    if not (isinstance(it, Rule) or isinstance(it, RuleGroup)):
+            if not isinstance(items, Iterable):
+                items = [items]
+            for it in items:
+                if not (isinstance(it, Rule) or isinstance(it, RuleGroup)):
+                    # Add a new `Rule` wrapper if applicable
+                    if callable(it):
+                        it = Rule.init_specific(it)
+                    else:
                         raise ValueError(
                             f"All items in a `RuleGroup` must be `Rule`s or `RuleGroup`s, got: {type(it)}"
                         )
-                    if isinstance(it, RuleGroup):
-                        self._n_rules += it._n_rules
-                    else:
-                        self._n_rules += 1
-            else:
-                # Wrap in iterable so `set` call passes
-                items = [items]
-            super().__init__(items)
+                res.append(it)
+                if isinstance(it, RuleGroup):
+                    self._n_rules += it._n_rules
+                else:
+                    self._n_rules += 1
+            super().__init__(res)
         else:
             super().__init__()
 
-    def add(self, item: Rule | RuleGroup):
+    def append(self, item: Rule | RuleGroup | Callable):
         if not (isinstance(item, Rule) or isinstance(item, RuleGroup)):
-            raise ValueError(f"All items in a `RuleGroup` must be `Rule`s, got: {type(item)}")
+            if callable(item):
+                item = Rule.init_specific(item)
+            else:
+                raise ValueError(f"All items in a `RuleGroup` must be `Rule`s, got: {type(item)}")
+        if isinstance(item, RuleGroup):
+            self._n_rules += len(item)
+        else:
+            self._n_rules += 1
         super().append(item)
 
     @staticmethod
@@ -240,26 +265,15 @@ class RuleGroup(list):
         The same rules apply as `Rule.combine`, except rules are generally copied into the first `RuleGroup`
           as opposed to creating a new "parent" `RuleGroup`.
 
-          The only time a parent `RuleGroup` is generated is when both `first` and `other` are each
-          independent `RuleGroup`s.
-
         Here are the expected cases:
-        - `RuleGroup` rs1 & `RuleGroup` rs2 -> `RuleGroup` {rs1, rs2}     # parent `RuleGroup` containing rs1, rs2
-            - TODO: some sort of nesting optimization? E.g. remove layers?
-        - `RuleGroup` rs1 & `Rule` r2 -> `RuleGroup` {*rs1, r2}         # r2 added to rs1
-        - `RuleGroup` rs1 & `dict` d2 -> `RuleGroup` {*rs1, dt2, drs2}, # dt2, drs2 added to  rs1
-            where `dt2` is a typecheck, and `drs2` is a `RuleGroup` derived from the contents of `d2`
-            `drs2` has the corresponding `key_prefix` property filled with the key information
-        - `RuleGroup` rs1 & `list` l2 -> `RuleGroup` {*rs1, lt2, lrs2}  # lt2, lrs2 added to  rs1
-            where `lt2` is a typecheck,  and `lrs2` is a `RuleGroup` derived from the contents of `l2`
-            `lrs2` has `key_prefix` specifying which items of the list it should be applied to.
-                `[]` -> List itself,
-                `[:]` -> All items within the list,
-                ... else support regular list slicing
-        - `RuleGroup` rs1 & `Callable` c2 -> `RuleGroup` {*rs1, rc2}      # rc2 added to rs1
-            where `rc2` is the Callable wrapped as an optional `Rule`
-        - `RuleGroup` rs1 & `Any` a2 -> `RuleGroup` {*rs1, ae2}           # ae2 added to rs1
-            where `ae2` is an equality check for the value a2
+        1. & RuleGroup -> Make a new RuleGroup with both existing ones (i.e. add a nesting parent)
+        (same as for Rule.combine, except add it to the current RuleGroup)
+        2. & Rule -> Add it to current RuleGroup
+        3. & type -> Add type check
+        4. & dict -> Add 1) type check, 2) contents of dict
+        5. & list -> Add 1) type check, 2) contents of list
+        6. & Callable -> Add the callable as a Rule
+        7. & some primitive -> Add an equality check for the primitive
         """
         if isinstance(other, RuleGroup):
             return RuleGroup((first, other), set_constraint)
@@ -271,11 +285,11 @@ class RuleGroup(list):
                 res.append(IsType(other))
             case dict():
                 res.append(IsType(dict))  # Type check
-                drs = _dict_to_RuleGroup(other)
+                drs = _dict_to_rulegroup(other)
                 res.append(drs)
             case list():
                 res.append(IsType(list))  # Type check
-                lrs = _list_to_RuleGroup(other)
+                lrs = _list_to_rulegroup(other)
                 res.append(lrs)
             case _:
                 if callable(other):
@@ -322,10 +336,10 @@ class RuleGroup(list):
             self._set_constraint is not RuleGroupConstraint.ALL_OF
             and len(rules_passed) >= self._set_constraint.value
         ):
-            rules_passed = _unnest_RuleGroup(rules_passed)
+            rules_passed = _unnest_rulegroup(rules_passed)
             res = Ok(rules_passed)
         else:
-            rules_failed = _unnest_RuleGroup(rules_failed)
+            rules_failed = _unnest_rulegroup(rules_failed)
             res = Err(rules_failed)
         return res
 
@@ -342,7 +356,7 @@ class RuleGroup(list):
             raise RuntimeError(f"Type error when calling RuleGroup, got: {type(source)}")
 
     def __hash__(self):
-        return hash(frozenset(self))
+        return hash(tuple(self))
 
     def __and__(self, other: Rule | RuleGroup | Any):
         return RuleGroup.combine(self, other)
@@ -456,8 +470,8 @@ class MinCount(Rule):
 
 
 class IsType(Rule):
-    def __init__(self, typ: type):
-        super().__init__(p.isinstance_of(typ))
+    def __init__(self, typ: type, at_key: str | None = None):
+        super().__init__(p.isinstance_of(typ), at_key=at_key)
 
 
 class InSet(Rule):
@@ -470,7 +484,7 @@ class InSet(Rule):
 """ Helper Functions """
 
 
-def _unnest_RuleGroup(rs: RuleGroup) -> RuleGroup:
+def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
     """
     Removes an unused outer nesting
     """
@@ -482,7 +496,7 @@ def _unnest_RuleGroup(rs: RuleGroup) -> RuleGroup:
     return res
 
 
-def _list_to_RuleGroup(
+def _list_to_rulegroup(
     l: list[Callable | Rule | RuleGroup | dict | list], key_prefix: str = ""
 ) -> RuleGroup:
     """
@@ -492,7 +506,7 @@ def _list_to_RuleGroup(
       For example: `{ 'k': [ str, bool ]}` -- at key 'k', it can contain a list `str` or `bool`
       (for more specific constraints: use a nested `RuleGroup`)
     """
-    # TODO TODO TODO: Need to handle key logic here!
+    # TODO: Check the key is getting applied correctly
     res = RuleGroup(constraint=RuleGroupConstraint.ONE_OF)
     for it in l:
         at_key = f"{key_prefix}[*]"  # Should be applied to every item in the list
@@ -503,26 +517,25 @@ def _list_to_RuleGroup(
             case RuleGroup():
                 res = it
             case dict():
-                res.append(_dict_to_RuleGroup(it, at_key))
+                res.append(_dict_to_rulegroup(it, at_key))
             case list():
-                res.append(_list_to_RuleGroup(it, at_key))
+                res.append(_list_to_rulegroup(it, at_key))
             case _:
                 if callable(it):
-                    res.append(Rule(it, at_key=at_key))
+                    res.append(Rule.init_specific(it, at_key=at_key))
                 else:
                     # Exact value check
-                    res.append(Rule(p.equals(it), at_key))
+                    res.append(Rule(p.equals(it), at_key=at_key))
     return res
 
 
-def _dict_to_RuleGroup(d: dict[str, Rule | RuleGroup], key_prefix: str = "") -> RuleGroup:
+def _dict_to_rulegroup(d: dict[str, Rule | RuleGroup], key_prefix: str = "") -> RuleGroup:
     """
     Given a dict, compress it into a single `RuleGroup` with key information saved
 
     NOTE: expect this dict to be 1-layer (i.e. not contain other dicts) -- other dicts should
       be encompassed in a `RuleGroup`
     """
-    # TODO TODO TODO: Handle key nesting here. I.e. `get` into ".".join([key_prefix, rule_key])
     res = RuleGroup()
     for k, v in d.items():
         if key_prefix:
@@ -534,14 +547,14 @@ def _dict_to_RuleGroup(d: dict[str, Rule | RuleGroup], key_prefix: str = "") -> 
             case RuleGroup():
                 res.append(v)
             case dict():
-                res.append(Rule(p.isinstance_of(dict), at_key=k))
-                res.append(_dict_to_RuleGroup(v, key_prefix=k))
+                res.append(IsType(dict, at_key=k))
+                res.append(_dict_to_rulegroup(v, key_prefix=k))
             case list():
-                res.append(Rule(p.isinstance_of(list), at_key=k))
-                res.append(_list_to_RuleGroup(v, key_prefix=k))
+                res.append(IsType(list, at_key=k))
+                res.append(_list_to_rulegroup(v, key_prefix=k))
             case _:
                 if callable(v):
-                    res.append(Rule(v, at_key=k))
+                    res.append(Rule.init_specific(v, at_key=k))
                 else:
                     # Exact value check
                     res.append(Rule(p.equals(v), at_key=k))
