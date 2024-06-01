@@ -8,8 +8,8 @@ from pydian.rules import (
     IsRequired,
     NotRequired,
     Rule,
-    RuleSet,
-    RuleSetConstraint,
+    RuleGroup,
+    RuleGroupConstraint,
 )
 from pydian.validation import validate
 
@@ -58,7 +58,7 @@ def test_validate(simple_data: dict[str, Any]) -> None:
     assert isinstance(validate(simple_data["data"], v_pass), Ok)
 
     # Example of fail
-    # TODO: This is failing due to RuleSet eval, fix with other tests!
+    # TODO: This is failing due to RuleGroup eval, fix with other tests!
     v_second = {
         "data": IsRequired()
         & {
@@ -79,13 +79,13 @@ def test_validate(simple_data: dict[str, Any]) -> None:
 
 
 # NOTE: this will implicitly get tested with above, since `validate` will drive key usage
-# def test_ruleset_at_key(simple_data: dict[str, Any]) -> None:
+# def test_RuleGroup_at_key(simple_data: dict[str, Any]) -> None:
 
 #     is_str_key = Rule(lambda x: isinstance(x, str), at_key="id")
 #     is_str_nested_key = Rule(lambda x: isinstance(x, str), at_key="patient.id")
 
 #     # Test `Rule`.at_key
-#     rs_default_key = RuleSet({is_str_key, is_str_nested_key})
+#     rs_default_key = RuleGroup({is_str_key, is_str_nested_key})
 
 #     # Expect two exceptions (missing outer key)
 #     assert rs_default_key(simple_data) == Err({is_str_key, is_str_nested_key})
@@ -95,7 +95,7 @@ def test_validate(simple_data: dict[str, Any]) -> None:
 #     assert rs_default_key(simple_data) == Ok({is_str_key, is_str_nested_key})
 
 
-#     # # Test generation of `RuleSet` with `at_key` set for each `Rule`
+#     # # Test generation of `RuleGroup` with `at_key` set for each `Rule`
 #     # rs_map = {
 #     #     "data": IsRequired() & {
 #     #         "patient": IsRequired() & {
@@ -105,7 +105,7 @@ def test_validate(simple_data: dict[str, Any]) -> None:
 #     #     }
 #     # }
 
-#     # assert rs_map["data"] == RuleSet({
+#     # assert rs_map["data"] == RuleGroup({
 #     #     IsRequired(),
 #     #     IsRequired(at_key)
 #     # })

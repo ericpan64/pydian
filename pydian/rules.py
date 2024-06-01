@@ -14,7 +14,7 @@ from .dicts import get
 
 class RuleConstraint(Enum):
     """
-    A constraint for a single `Rule` (`RuleSet` is responsible for application)
+    A constraint for a single `Rule` (`RuleGroup` is responsible for application)
 
     Optional by default (i.e. no value specified)
     """
@@ -23,9 +23,9 @@ class RuleConstraint(Enum):
     # ONLY_IF = lambda fn: (RuleConstraint.REQUIRED, fn)  # Usage: RuleConstraint.ONLY_IF(some_fn)
 
 
-class RuleSetConstraint(Enum):
+class RuleGroupConstraint(Enum):
     """
-    Constraints on top of current `RuleSet`
+    Constraints on top of current `RuleGroup`
 
     Required by default (i.e. `ALL_OF`)
 
@@ -44,9 +44,9 @@ class Rule:
     - Ok(truthy_result)
     - Err(str + falsy_result)
 
-    A `Rule` can have additional constraints. These will ONLY be applied if contained within a `RuleSet`
+    A `Rule` can have additional constraints. These will ONLY be applied if contained within a `RuleGroup`
 
-    `Rule`s can be combined to create `RuleSet`s using: `&`, `|`
+    `Rule`s can be combined to create `RuleGroup`s using: `&`, `|`
     """
 
     def _raise_undefined_rule_err():  # type: ignore
@@ -59,11 +59,11 @@ class Rule:
     def __init__(
         self,
         fn: Callable,
-        constraints: RuleConstraint | Collection[RuleConstraint] | None = None,
+        constraints: RuleConstraint | set[RuleConstraint] | None = None,
         at_key: str | None = None,
     ):
         self._fn = fn
-        self._key = at_key  # Managed by `RuleSet`
+        self._key = at_key  # Managed by `RuleGroup`
         self._constraints = set()
         match constraints:
             case RuleConstraint():
@@ -76,7 +76,7 @@ class Rule:
         """
         Call specified rule
 
-        NOTE: the key nesting needs to be enforced at the `RuleSet` level,
+        NOTE: the key nesting needs to be enforced at the `RuleGroup` level,
             since an individual Rule doesn't have enough information available to it
         """
         try:
@@ -108,96 +108,96 @@ class Rule:
     @staticmethod
     def combine(
         rule: Rule,
-        other: Rule | RuleSet | Any,
-        set_constraint: RuleSetConstraint = RuleSetConstraint.ALL_OF,
-    ) -> RuleSet:
+        other: Rule | RuleGroup | Any,
+        set_constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF,
+    ) -> RuleGroup:
         """
-        Combines a `Rule` with another value. By default, `RuleSetConstraint.ALL_OF` is used,
+        Combines a `Rule` with another value. By default, `RuleGroupConstraint.ALL_OF` is used,
           so all contained optional `Rule`s become REQUIRED by default.
 
         Here are the expected cases:
-        - `Rule` r1 & `Rule` r2 -> `RuleSet` {r1, r2}
-        - `Rule` r1 & `RuleSet` rs2 -> `RuleSet` {r1, rs2}
-        - `Rule` r1 & `dict` d2 -> `RuleSet` {r1, dt2, drs2},
-            where `dt2` is a typecheck, and `drs2` is a `RuleSet` derived from the contents of `d2`
+        - `Rule` r1 & `Rule` r2 -> `RuleGroup` {r1, r2}
+        - `Rule` r1 & `RuleGroup` rs2 -> `RuleGroup` {r1, rs2}
+        - `Rule` r1 & `dict` d2 -> `RuleGroup` {r1, dt2, drs2},
+            where `dt2` is a typecheck, and `drs2` is a `RuleGroup` derived from the contents of `d2`
             `drs2` has the corresponding `key_prefix` property filled with the key information
-        - `Rule` r1 & `list` l2 -> `RuleSet` {r1, lt2, lrs2}
-            where `lt2` is a typecheck,  and `lrs2` is a `RuleSet` derived from the contents of `l2`
+        - `Rule` r1 & `list` l2 -> `RuleGroup` {r1, lt2, lrs2}
+            where `lt2` is a typecheck,  and `lrs2` is a `RuleGroup` derived from the contents of `l2`
             `lrs2` has `key_prefix` specifying which items of the list it should be applied to.
                 `[]` -> List itself,
                 `[:]` -> All items within the list,
                 ... else support regular list slicing
-        - `Rule` r1 & `Callable` c2 -> `RuleSet` {r1, rc2}
+        - `Rule` r1 & `Callable` c2 -> `RuleGroup` {r1, rc2}
             where `rc2` is the Callable wrapped as an optional `Rule`
-        - `Rule` r1 & `Any` a2 -> `RuleSet` {r1, ae2}
+        - `Rule` r1 & `Any` a2 -> `RuleGroup` {r1, ae2}
             where `ae2` is an equality check
         """
-        res = RuleSet(rule, set_constraint)
+        res = RuleGroup(rule, set_constraint)
         match other:
-            case Rule() | RuleSet():
-                res.add(other)
+            case Rule() | RuleGroup():
+                res.append(other)
             case type():
-                res.add(IsType(other))
+                res.append(IsType(other))
             case dict():
                 # Add the typecheck
-                res.add(Rule(lambda x: isinstance(x, dict)))
+                res.append(Rule(lambda x: isinstance(x, dict)))
                 # For each item in dict, save key information and add to res
-                drs = _dict_to_ruleset(other)
-                res.add(drs)
+                drs = _dict_to_RuleGroup(other)
+                res.append(drs)
             case list():
                 # Add the typecheck
-                res.add(Rule(lambda x: isinstance(x, list)))
+                res.append(Rule(lambda x: isinstance(x, list)))
                 # For each item in list, save key information and add to res
-                lrs = _list_to_ruleset(other)
-                res.add(lrs)
+                lrs = _list_to_RuleGroup(other)
+                res.append(lrs)
             case _:
                 if callable(other):
-                    res.add(Rule(other))
+                    res.append(Rule(other))
                 else:
                     # Exact value check
-                    res.add(Rule(p.equals(other)))
+                    res.append(Rule(p.equals(other)))
         return res
 
-    def __and__(self, other: Rule | RuleSet | Any):
+    def __and__(self, other: Rule | RuleGroup | Any):
         return Rule.combine(self, other)
 
-    def __rand__(self, other: Rule | RuleSet | Any):
+    def __rand__(self, other: Rule | RuleGroup | Any):
         # Operation intended to be commutative
         return self.__and__(other)
 
-    def __or__(self, other: Rule | RuleSet | Any):
-        return Rule.combine(self, other, RuleSetConstraint.ONE_OF)
+    def __or__(self, other: Rule | RuleGroup | Any):
+        return Rule.combine(self, other, RuleGroupConstraint.ONE_OF)
 
-    def __ror__(self, other: Rule | RuleSet | Any):
+    def __ror__(self, other: Rule | RuleGroup | Any):
         # Operation intended to be commutative
         return self.__or__(other)
 
 
-class RuleSet(set):
+class RuleGroup(list):
     """
-    A `RuleSet` is a callable set that can contain:
+    A `RuleGroup` is a callable list that can contain:
     - One or many `Rule`s
-    - Other `RuleSet`s (ending in a terminal `RuleSet` of just `Rule`s at some point)
+    - Other `RuleGroup`s (ending in a terminal `RuleGroup` of just `Rule`s at some point)
 
-    When called, a `RuleSet` evaluates all contained `Rule`/`RuleSets` and combines the result into:
+    When called, a `RuleGroup` evaluates all contained `Rule`/`RuleGroups` and combines the result into:
     - Ok([rules_passed, ...])
     - Err([rules_failed, ...])
 
-    A constraint defines whether the result is `Ok` or `Err` based on contained `Rule`/`RuleSets`.
-      Additionally, individual `Rule`s may have constraints which the `RuleSet` manages
+    A constraint defines whether the result is `Ok` or `Err` based on contained `Rule`/`RuleGroups`.
+      Additionally, individual `Rule`s may have constraints which the `RuleGroup` manages
     """
 
-    _set_constraint: RuleSetConstraint = RuleSetConstraint.ALL_OF  # default
+    _set_constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF  # default
     _n_rules: int = 0
     # NOTE: _key is needed here to save nesting information
-    #   e.g. a user-specified `RuleSet` shouldn't need to specify `_key` for each rule,
+    #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
     #   rather we should infer that during parsing
     _key: str | None = None
 
     def __init__(
         self,
-        items: Rule | RuleSet | Collection[Rule | RuleSet] | None = None,
-        constraint: RuleSetConstraint = RuleSetConstraint.ALL_OF,
+        items: Rule | RuleGroup | Collection[Rule | RuleGroup] | None = None,
+        constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF,
         at_key: str | None = None,
     ):
         self._set_constraint = constraint
@@ -207,11 +207,11 @@ class RuleSet(set):
             # Check items
             if isinstance(items, Iterable):
                 for it in items:
-                    if not (isinstance(it, Rule) or isinstance(it, RuleSet)):
+                    if not (isinstance(it, Rule) or isinstance(it, RuleGroup)):
                         raise ValueError(
-                            f"All items in a `RuleSet` must be `Rule`s or `RuleSet`s, got: {type(it)}"
+                            f"All items in a `RuleGroup` must be `Rule`s or `RuleGroup`s, got: {type(it)}"
                         )
-                    if isinstance(it, RuleSet):
+                    if isinstance(it, RuleGroup):
                         self._n_rules += it._n_rules
                     else:
                         self._n_rules += 1
@@ -222,70 +222,70 @@ class RuleSet(set):
         else:
             super().__init__()
 
-    def add(self, item: Rule | RuleSet):
-        if not (isinstance(item, Rule) or isinstance(item, RuleSet)):
-            raise ValueError(f"All items in a `RuleSet` must be `Rule`s, got: {type(item)}")
-        super().add(item)
+    def add(self, item: Rule | RuleGroup):
+        if not (isinstance(item, Rule) or isinstance(item, RuleGroup)):
+            raise ValueError(f"All items in a `RuleGroup` must be `Rule`s, got: {type(item)}")
+        super().append(item)
 
     @staticmethod
     def combine(
-        first: RuleSet,
-        other: Rule | RuleSet | Any,
-        set_constraint: RuleSetConstraint = RuleSetConstraint.ALL_OF,
-    ) -> RuleSet:
+        first: RuleGroup,
+        other: Rule | RuleGroup | Any,
+        set_constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF,
+    ) -> RuleGroup:
         """
-        Combines a `RuleSet` with another value. By default, `RuleSetConstraint.ALL_OF` is used,
+        Combines a `RuleGroup` with another value. By default, `RuleGroupConstraint.ALL_OF` is used,
           so all contained optional `Rule`s become REQUIRED by default.
 
-        The same rules apply as `Rule.combine`, except rules are generally copied into the first `RuleSet`
-          as opposed to creating a new "parent" `RuleSet`.
+        The same rules apply as `Rule.combine`, except rules are generally copied into the first `RuleGroup`
+          as opposed to creating a new "parent" `RuleGroup`.
 
-          The only time a parent `RuleSet` is generated is when both `first` and `other` are each
-          independent `RuleSet`s.
+          The only time a parent `RuleGroup` is generated is when both `first` and `other` are each
+          independent `RuleGroup`s.
 
         Here are the expected cases:
-        - `RuleSet` rs1 & `RuleSet` rs2 -> `RuleSet` {rs1, rs2}     # parent `RuleSet` containing rs1, rs2
+        - `RuleGroup` rs1 & `RuleGroup` rs2 -> `RuleGroup` {rs1, rs2}     # parent `RuleGroup` containing rs1, rs2
             - TODO: some sort of nesting optimization? E.g. remove layers?
-        - `RuleSet` rs1 & `Rule` r2 -> `RuleSet` {*rs1, r2}         # r2 added to rs1
-        - `RuleSet` rs1 & `dict` d2 -> `RuleSet` {*rs1, dt2, drs2}, # dt2, drs2 added to  rs1
-            where `dt2` is a typecheck, and `drs2` is a `RuleSet` derived from the contents of `d2`
+        - `RuleGroup` rs1 & `Rule` r2 -> `RuleGroup` {*rs1, r2}         # r2 added to rs1
+        - `RuleGroup` rs1 & `dict` d2 -> `RuleGroup` {*rs1, dt2, drs2}, # dt2, drs2 added to  rs1
+            where `dt2` is a typecheck, and `drs2` is a `RuleGroup` derived from the contents of `d2`
             `drs2` has the corresponding `key_prefix` property filled with the key information
-        - `RuleSet` rs1 & `list` l2 -> `RuleSet` {*rs1, lt2, lrs2}  # lt2, lrs2 added to  rs1
-            where `lt2` is a typecheck,  and `lrs2` is a `RuleSet` derived from the contents of `l2`
+        - `RuleGroup` rs1 & `list` l2 -> `RuleGroup` {*rs1, lt2, lrs2}  # lt2, lrs2 added to  rs1
+            where `lt2` is a typecheck,  and `lrs2` is a `RuleGroup` derived from the contents of `l2`
             `lrs2` has `key_prefix` specifying which items of the list it should be applied to.
                 `[]` -> List itself,
                 `[:]` -> All items within the list,
                 ... else support regular list slicing
-        - `RuleSet` rs1 & `Callable` c2 -> `RuleSet` {*rs1, rc2}      # rc2 added to rs1
+        - `RuleGroup` rs1 & `Callable` c2 -> `RuleGroup` {*rs1, rc2}      # rc2 added to rs1
             where `rc2` is the Callable wrapped as an optional `Rule`
-        - `RuleSet` rs1 & `Any` a2 -> `RuleSet` {*rs1, ae2}           # ae2 added to rs1
+        - `RuleGroup` rs1 & `Any` a2 -> `RuleGroup` {*rs1, ae2}           # ae2 added to rs1
             where `ae2` is an equality check for the value a2
         """
-        if isinstance(other, RuleSet):
-            return RuleSet((first, other), set_constraint)
+        if isinstance(other, RuleGroup):
+            return RuleGroup((first, other), set_constraint)
         res = deepcopy(first)
         match other:
             case Rule():
-                res.add(other)
+                res.append(other)
             case type():
-                res.add(IsType(other))
+                res.append(IsType(other))
             case dict():
-                res.add(IsType(dict))  # Type check
-                drs = _dict_to_ruleset(other)
-                res.add(drs)
+                res.append(IsType(dict))  # Type check
+                drs = _dict_to_RuleGroup(other)
+                res.append(drs)
             case list():
-                res.add(IsType(list))  # Type check
-                lrs = _list_to_ruleset(other)
-                res.add(lrs)
+                res.append(IsType(list))  # Type check
+                lrs = _list_to_RuleGroup(other)
+                res.append(lrs)
             case _:
                 if callable(other):
-                    res.add(Rule(other))
+                    res.append(Rule(other))
                 else:
-                    res.add(Rule(p.equals(other)))
+                    res.append(Rule(p.equals(other)))
         return res
 
-    def __call__(self, *args) -> Ok[RuleSet] | Err[RuleSet]:
-        rules_passed, rules_failed = RuleSet(), RuleSet()
+    def __call__(self, *args) -> Ok[RuleGroup] | Err[RuleGroup]:
+        rules_passed, rules_failed = RuleGroup(), RuleGroup()
         failed_required_rule = False
 
         # Apply key unnesting logic
@@ -316,44 +316,45 @@ class RuleSet(set):
         if failed_required_rule:
             res = Err(rules_failed)
         elif (
-            self._set_constraint is RuleSetConstraint.ALL_OF and len(rules_passed) == self._n_rules
+            self._set_constraint is RuleGroupConstraint.ALL_OF
+            and len(rules_passed) == self._n_rules
         ) or (
-            self._set_constraint is not RuleSetConstraint.ALL_OF
+            self._set_constraint is not RuleGroupConstraint.ALL_OF
             and len(rules_passed) >= self._set_constraint.value
         ):
-            rules_passed = _unnest_ruleset(rules_passed)
+            rules_passed = _unnest_RuleGroup(rules_passed)
             res = Ok(rules_passed)
         else:
-            rules_failed = _unnest_ruleset(rules_failed)
+            rules_failed = _unnest_RuleGroup(rules_failed)
             res = Err(rules_failed)
         return res
 
-    def _consume_rules_inplace(self, source: RuleSet | Rule, target: RuleSet) -> None:
+    def _consume_rules_inplace(self, source: RuleGroup | Rule, target: RuleGroup) -> None:
         """
-        Adds rules to target RuleSet
+        Adds rules to target RuleGroup
         """
-        if isinstance(source, RuleSet):
+        if isinstance(source, RuleGroup):
             for r in source:
-                target.add(r)
+                target.append(r)
         elif isinstance(source, Rule):
-            target.add(source)
+            target.append(source)
         else:
-            raise RuntimeError(f"Type error when calling RuleSet, got: {type(source)}")
+            raise RuntimeError(f"Type error when calling RuleGroup, got: {type(source)}")
 
     def __hash__(self):
         return hash(frozenset(self))
 
-    def __and__(self, other: Rule | RuleSet | Any):
-        return RuleSet.combine(self, other)
+    def __and__(self, other: Rule | RuleGroup | Any):
+        return RuleGroup.combine(self, other)
 
-    def __rand__(self, other: Rule | RuleSet | Any):
+    def __rand__(self, other: Rule | RuleGroup | Any):
         # Expect commutative
         return self.__and__(other)
 
-    def __or__(self, other: Rule | RuleSet | Any):
-        return RuleSet.combine(self, other, RuleSetConstraint.ONE_OF)
+    def __or__(self, other: Rule | RuleGroup | Any):
+        return RuleGroup.combine(self, other, RuleGroupConstraint.ONE_OF)
 
-    def __ror__(self, other: Rule | RuleSet | Any):
+    def __ror__(self, other: Rule | RuleGroup | Any):
         # Expect commutative
         return self.__or__(other)
 
@@ -365,14 +366,14 @@ class IsRequired(Rule):
     """
     A rule where the current field is required
 
-    For `RuleSet`s: flips `OPTIONAL` -> `ALL_OF`, otherwise ignore more specific constraint
+    For `RuleGroup`s: flips `OPTIONAL` -> `ALL_OF`, otherwise ignore more specific constraint
     """
 
     def __init__(self, at_key: str | None = None):
         # For each rule, make it required
         super().__init__(p.not_equivalent(None), RuleConstraint.REQUIRED, at_key=at_key)
 
-    def __and__(self, other: Rule | RuleSet | Any) -> Rule | RuleSet:
+    def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
         """
         Returns the same type as `other`
         """
@@ -382,7 +383,7 @@ class IsRequired(Rule):
                 res._constraints.add(RuleConstraint.REQUIRED)  # type: ignore
             case _:
                 res = super().__and__(other)
-                res._set_constraint = RuleSetConstraint.ALL_OF  # type: ignore
+                res._set_constraint = RuleGroupConstraint.ALL_OF  # type: ignore
         return res
 
     def __rand__(self, other):
@@ -398,25 +399,25 @@ class NotRequired(Rule):
         # Initialize with dummy placeholder rule
         super().__init__(lambda _: True, at_key=at_key)
 
-    def __and__(self, other: Rule | RuleSet | Any) -> Rule | RuleSet:
+    def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
         """
         For a `Rule`: remove `REQUIRED`
-        For a `RuleSet`: set to `OPTIONAL` -- this means it's optional, but validate if-present
+        For a `RuleGroup`: set to `OPTIONAL` -- this means it's optional, but validate if-present
         """
         match other:
             case Rule():
                 res = deepcopy(other)
                 if RuleConstraint.REQUIRED in res._constraints:
                     res._constraints.remove(RuleConstraint.REQUIRED)  # type: ignore
-            case RuleSet():
+            case RuleGroup():
                 res = deepcopy(other)  # type: ignore
-                res._set_constraint = RuleSetConstraint.OPTIONAL  # type: ignore
+                res._set_constraint = RuleGroupConstraint.OPTIONAL  # type: ignore
             case _:
                 res = super().__and__(other)
-                res._set_constraint = RuleSetConstraint.OPTIONAL  # type: ignore
+                res._set_constraint = RuleGroupConstraint.OPTIONAL  # type: ignore
         return res
 
-    def __rand__(self, other: Rule | RuleSet | Any):
+    def __rand__(self, other: Rule | RuleGroup | Any):
         return self.__and__(other)
 
 
@@ -469,79 +470,79 @@ class InSet(Rule):
 """ Helper Functions """
 
 
-def _unnest_ruleset(rs: RuleSet) -> RuleSet:
+def _unnest_RuleGroup(rs: RuleGroup) -> RuleGroup:
     """
     Removes an unused outer nesting
     """
     res = rs
-    if rs._set_constraint is not RuleSetConstraint.OPTIONAL and len(rs) == 1:
+    if rs._set_constraint is not RuleGroupConstraint.OPTIONAL and len(rs) == 1:
         (item,) = rs
-        if isinstance(item, RuleSet):
+        if isinstance(item, RuleGroup):
             res = item
     return res
 
 
-def _list_to_ruleset(
-    l: list[Callable | Rule | RuleSet | dict | list], key_prefix: str = ""
-) -> RuleSet:
+def _list_to_RuleGroup(
+    l: list[Callable | Rule | RuleGroup | dict | list], key_prefix: str = ""
+) -> RuleGroup:
     """
-    Given a list, compress it into a single `RuleSet`
+    Given a list, compress it into a single `RuleGroup`
 
-    An item in the list should pass at least one of the callables in the `RuleSet`.
+    An item in the list should pass at least one of the callables in the `RuleGroup`.
       For example: `{ 'k': [ str, bool ]}` -- at key 'k', it can contain a list `str` or `bool`
-      (for more specific constraints: use a nested `RuleSet`)
+      (for more specific constraints: use a nested `RuleGroup`)
     """
     # TODO TODO TODO: Need to handle key logic here!
-    res = RuleSet(constraint=RuleSetConstraint.ONE_OF)
+    res = RuleGroup(constraint=RuleGroupConstraint.ONE_OF)
     for it in l:
         at_key = f"{key_prefix}[*]"  # Should be applied to every item in the list
         match it:
             case Rule():
                 it._key = at_key
-                res.add(it)
-            case RuleSet():
+                res.append(it)
+            case RuleGroup():
                 res = it
             case dict():
-                res.add(_dict_to_ruleset(it, at_key))
+                res.append(_dict_to_RuleGroup(it, at_key))
             case list():
-                res.add(_list_to_ruleset(it, at_key))
+                res.append(_list_to_RuleGroup(it, at_key))
             case _:
                 if callable(it):
-                    res.add(Rule(it, at_key=at_key))
+                    res.append(Rule(it, at_key=at_key))
                 else:
                     # Exact value check
-                    res.add(Rule(p.equals(it), at_key))
+                    res.append(Rule(p.equals(it), at_key))
     return res
 
 
-def _dict_to_ruleset(d: dict[str, Rule | RuleSet], key_prefix: str = "") -> RuleSet:
+def _dict_to_RuleGroup(d: dict[str, Rule | RuleGroup], key_prefix: str = "") -> RuleGroup:
     """
-    Given a dict, compress it into a single `RuleSet` with key information saved
+    Given a dict, compress it into a single `RuleGroup` with key information saved
 
     NOTE: expect this dict to be 1-layer (i.e. not contain other dicts) -- other dicts should
-      be encompassed in a `RuleSet`
+      be encompassed in a `RuleGroup`
     """
     # TODO TODO TODO: Handle key nesting here. I.e. `get` into ".".join([key_prefix, rule_key])
-    res = RuleSet()
+    res = RuleGroup()
     for k, v in d.items():
         if key_prefix:
             k = f"{key_prefix}.{k}"
         match v:
             case Rule():
                 v._key = k
-                res.add(v)
-            case RuleSet():
-                res.add(v)
+                res.append(v)
+            case RuleGroup():
+                res.append(v)
             case dict():
-                res.add(Rule(p.isinstance_of(dict), at_key=k))
-                res.add(_dict_to_ruleset(v, key_prefix=k))
+                res.append(Rule(p.isinstance_of(dict), at_key=k))
+                res.append(_dict_to_RuleGroup(v, key_prefix=k))
             case list():
-                res.add(Rule(p.isinstance_of(list), at_key=k))
-                res.add(_list_to_ruleset(v, key_prefix=k))
+                res.append(Rule(p.isinstance_of(list), at_key=k))
+                res.append(_list_to_RuleGroup(v, key_prefix=k))
             case _:
                 if callable(v):
-                    res.add(Rule(v, at_key=k))
+                    res.append(Rule(v, at_key=k))
                 else:
                     # Exact value check
-                    res.add(Rule(p.equals(v), at_key=k))
+                    res.append(Rule(p.equals(v), at_key=k))
     return res
