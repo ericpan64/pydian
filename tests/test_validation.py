@@ -6,8 +6,10 @@ from result import Err, Ok
 from pydian.rules import (
     InRange,
     IsRequired,
+    IsType,
     NotRequired,
     Rule,
+    RuleConstraint,
     RuleGroup,
     RuleGroupConstraint,
 )
@@ -34,6 +36,70 @@ def test_pydantic(simple_data: dict[str, Any]) -> None:
     assert DataWrapper(**simple_data)
 
 
+def test_validation_map_gen() -> None:
+    v_pass_map = {
+        "patient": IsRequired()
+        & {
+            "id": IsRequired() & str,
+            "active": IsRequired() & bool,
+            "_some_new_key": str,  # implicitly optional
+        }
+    }
+
+    assert v_pass_map == {
+        "patient": RuleGroup(
+            [
+                IsRequired(),
+                IsType(dict),
+                RuleGroup(
+                    [
+                        IsType(str, constraints=RuleConstraint.REQUIRED, at_key="id"),
+                        IsType(bool, constraints=RuleConstraint.REQUIRED, at_key="active"),
+                        IsType(str, at_key="_some_new_key"),
+                    ]
+                ),
+            ]
+        )
+    }
+
+    # Add a level of nesting
+    v_pass_map = {"data": IsRequired() & v_pass_map}
+
+    assert v_pass_map == {
+        "data": RuleGroup(
+            [
+                IsRequired(),
+                IsType(dict),
+                RuleGroup(
+                    [
+                        # Each key in dict is it's own separate RuleGroup
+                        RuleGroup(
+                            [
+                                IsRequired(),
+                                IsType(dict),
+                                RuleGroup(
+                                    [
+                                        IsType(
+                                            str, constraints=RuleConstraint.REQUIRED, at_key="id"
+                                        ),
+                                        IsType(
+                                            bool,
+                                            constraints=RuleConstraint.REQUIRED,
+                                            at_key="active",
+                                        ),
+                                        IsType(str, at_key="_some_new_key"),
+                                    ]
+                                ),
+                            ],
+                            at_key="patient",
+                        )
+                    ]
+                ),
+            ]
+        )
+    }
+
+
 def test_validate(simple_data: dict[str, Any]) -> None:
     # Example of pass
     # v_pass = {
@@ -47,7 +113,7 @@ def test_validate(simple_data: dict[str, Any]) -> None:
     #         }
     #     }
     # }
-    v_pass = {
+    v_pass_map = {
         "patient": IsRequired()
         & {
             "id": IsRequired() & str,
@@ -55,7 +121,8 @@ def test_validate(simple_data: dict[str, Any]) -> None:
             "_some_new_key": str,  # implicitly optional
         }
     }
-    assert isinstance(validate(simple_data["data"], v_pass), Ok)
+    v_res = validate(simple_data["data"], v_pass_map)
+    assert isinstance(v_res, Ok)
 
     # Example of fail
     # TODO: This is failing due to RuleGroup eval, fix with other tests!
