@@ -102,26 +102,18 @@ def test_validation_map_gen() -> None:
 
 def test_validate(simple_data: dict[str, Any]) -> None:
     # Example of pass
-    # v_pass = {
-    #     "data": IsRequired()
-    #     & {
-    #         "patient": IsRequired()
-    #         & {
-    #             "id": IsRequired() & str,
-    #             "active": IsRequired() & bool,
-    #             "_some_new_key": str,  # implicitly optional
-    #         }
-    #     }
-    # }
     v_pass_map = {
-        "patient": IsRequired()
+        "data": IsRequired()
         & {
-            "id": IsRequired() & str,
-            "active": IsRequired() & bool,
-            "_some_new_key": str,  # implicitly optional
+            "patient": IsRequired()
+            & {
+                "id": IsRequired() & str,
+                "active": IsRequired() & bool,
+                "_some_new_key": str,  # implicitly optional
+            }
         }
     }
-    v_res = validate(simple_data["data"], v_pass_map)
+    v_res = validate(simple_data, v_pass_map)
     assert isinstance(v_res, Ok)
 
     # Example of fail
@@ -137,11 +129,14 @@ def test_validate(simple_data: dict[str, Any]) -> None:
             }
         }
     }
-    assert isinstance(validate(simple_data, v_second), Err)
+    v_err_missing_key = validate(simple_data, v_second)
+    assert isinstance(v_err_missing_key, Err)
 
     # Example of fail -- will still validate when present, and ignore if not present
+    # TODO: This is a bit tricky -- this will need defining `NotRequired` more concretely too...
     v_second["data"] &= NotRequired()
-    assert isinstance(validate(simple_data, v_second), Err)
+    v_err_validate_when_present = validate(simple_data, v_second)
+    assert isinstance(v_err_validate_when_present, Err)
     assert isinstance(validate(dict(), v_second), Ok)
 
 

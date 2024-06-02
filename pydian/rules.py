@@ -12,6 +12,8 @@ from result import Err, Ok
 
 import pydian.partials as p
 
+from .dicts import get
+
 
 class RuleConstraint(Enum):
     """
@@ -33,7 +35,7 @@ class RuleGroupConstraint(Enum):
     Groups of >3 explicitlyrequired are discouraged!"""
 
     ALL_OF = -1
-    OPTIONAL = 0
+    OPTIONAL = 0  # NOTE: Optional values should be validated _if present_
     ONE_OF = 1
     TWO_OF = 2
     THREE_OF = 3
@@ -71,17 +73,21 @@ class Rule:
                 self._constraints.add(constraints)
             case Collection():
                 for c in constraints:
-                    self._constraints.add(c)
+                    if isinstance(c, RuleConstraint):
+                        self._constraints.add(c)
 
-    def __call__(self, *args) -> Ok[Any] | Err[str]:
+    def __call__(self, source: Any, *args) -> Ok[Any] | Err[str]:
         """
         Call specified rule
 
         NOTE: the key nesting needs to be enforced at the `RuleGroup` level,
             since an individual Rule doesn't have enough information available to it
         """
+        # NOTE: Only apply key logic for `dict`s. Something something, design choice!
+        if isinstance(source, dict) and self._key:
+            source = get(source, self._key)
         try:
-            res = self._fn(*args)
+            res = self._fn(source, *args)
             if res:
                 return Ok(res)
         except Exception as e:
@@ -129,11 +135,11 @@ class Rule:
     def combine(
         rule: Rule,
         other: Rule | RuleGroup | Any,
-        set_constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF,
+        set_constraint: RuleGroupConstraint = RuleGroupConstraint.ONE_OF,
     ) -> RuleGroup:
         """
-        Combines a `Rule` with another value. By default, `RuleGroupConstraint.ALL_OF` is used,
-          so all contained optional `Rule`s become REQUIRED by default.
+        Combines a `Rule` with another value. By default, `RuleGroupConstraint.ONE_OF` is used,
+          so all contained optional `Rule`s become optional by default (implicitly).
 
         The new RuleGroup will contain the original Rule + extras based on the cases below.
 
@@ -201,7 +207,9 @@ class RuleGroup(list):
     """
 
     _set_constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF  # default
-    _n_rules: int = 0
+    _n_rules: int = (
+        0  # TODO: this is buggy... define behavior and reduce ambiguity (at some point)!
+    )
     # NOTE: _key is needed here to save nesting information
     #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
     #   rather we should infer that during parsing
@@ -256,11 +264,11 @@ class RuleGroup(list):
     def combine(
         first: RuleGroup,
         other: Rule | RuleGroup | Any,
-        set_constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF,
+        set_constraint: RuleGroupConstraint = RuleGroupConstraint.ONE_OF,
     ) -> RuleGroup:
         """
         Combines a `RuleGroup` with another value. By default, `RuleGroupConstraint.ALL_OF` is used,
-          so all contained optional `Rule`s become REQUIRED by default.
+          so all contained optional `Rule`s become optional by default (implicitly).
 
         The same rules apply as `Rule.combine`, except rules are generally copied into the first `RuleGroup`
           as opposed to creating a new "parent" `RuleGroup`.
@@ -298,38 +306,35 @@ class RuleGroup(list):
                     res.append(Rule(p.equals(other)))
         return res
 
-    def __call__(self, *args) -> Ok[RuleGroup] | Err[RuleGroup]:
+    def __call__(self, source: Any, *args) -> Ok[RuleGroup] | Err[RuleGroup]:
         rules_passed, rules_failed = RuleGroup(), RuleGroup()
-        failed_required_rule = False
 
         # Apply key unnesting logic
+        # NOTE: only when source is a dict. Design choice!
+        if isinstance(source, dict) and self._key:
+            source = get(source, self._key)
 
         # Chain calls for each contained rule
-        for rule_or_rs in self:
+        for rule_or_rg in self:
             try:
                 # NOTE: Both `Ok`, `Err` are truthy as-is, want `Err` to fail rule
                 #   `<Err>.unwrap()` throws exception
-                if rule_or_rs(*args).unwrap():
-                    self._consume_rules_inplace(rule_or_rs, rules_passed)
+                if rule_or_rg(source, *args).unwrap():
+                    self._consume_rules_inplace(rule_or_rg, rules_passed)
                 else:
-                    self._consume_rules_inplace(rule_or_rs, rules_failed)
-                    if isinstance(rule_or_rs, Rule) and (
-                        RuleConstraint.REQUIRED in rule_or_rs._constraints
-                    ):
-                        failed_required_rule = True
+                    self._consume_rules_inplace(rule_or_rg, rules_failed)
             except:
                 # TODO: include other info about exception?
-                self._consume_rules_inplace(rule_or_rs, rules_failed)
-                if isinstance(rule_or_rs, Rule) and (
-                    RuleConstraint.REQUIRED in rule_or_rs._constraints
-                ):
-                    failed_required_rule = True
+                self._consume_rules_inplace(rule_or_rg, rules_failed)
 
         # Check result and return
         res: Ok | Err | None = None
-        if failed_required_rule:
-            res = Err(rules_failed)
-        elif (
+        ## Check for failed required rules -- return Err early if so
+        for r in rules_failed:
+            if isinstance(r, Rule) and (RuleConstraint.REQUIRED in r._constraints):
+                return Err(rules_failed)
+        ## Check `ALL_OF`, otherwise check number based on value
+        if (
             self._set_constraint is RuleGroupConstraint.ALL_OF
             and len(rules_passed) == self._n_rules
         ) or (
@@ -380,7 +385,7 @@ class IsRequired(Rule):
     """
     A rule where the current field is required
 
-    For `RuleGroup`s: flips `OPTIONAL` -> `ALL_OF`, otherwise ignore more specific constraint
+    For `RuleGroup`: keep default contraint
     """
 
     def __init__(self, at_key: str | None = None):
@@ -401,7 +406,6 @@ class IsRequired(Rule):
                     res = Rule.init_specific(other, RuleConstraint.REQUIRED)
                 else:
                     res = super().__and__(other)
-                    res._set_constraint = RuleGroupConstraint.ALL_OF  # type: ignore
         return res
 
     def __rand__(self, other):
@@ -428,6 +432,9 @@ class NotRequired(Rule):
                 if RuleConstraint.REQUIRED in res._constraints:
                     res._constraints.remove(RuleConstraint.REQUIRED)  # type: ignore
             case RuleGroup():
+                # TODO: handle the "validate if present" condition
+                #   Consider: change this `_fn` to a `None` check, and `ONE_OF` rule group
+                #   OR enforce the `OPTIONAL` constraint somewhere else
                 res = deepcopy(other)  # type: ignore
                 res._set_constraint = RuleGroupConstraint.OPTIONAL  # type: ignore
             case _:
