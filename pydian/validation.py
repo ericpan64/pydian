@@ -22,7 +22,11 @@ def validate(
         if r_rs._key:
             k = f"{k}.{r_rs._key}"
         # Run rules on source[k]
-        res = r_rs(get(source, k))
+        # NOTE: need to handle nested keys somehow
+        #   A `RuleSet` key applies to all child items
+        #   A `Rule` key is terminal, and applies to current object
+        curr_level = get(source, k)
+        res = r_rs(curr_level)  # Expect Rule / RuleSet to handle key after
         if isinstance(res, Err):
             failed_rules.append(r_rs)
 
