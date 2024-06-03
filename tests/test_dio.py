@@ -6,13 +6,28 @@ from polars.testing import (
     assert_frame_equal,  # Do `type: ignore` to ignore the `Err` case
 )
 
-from pydian.dio import WorkdirSession
+from pydian.dio import SomeFile, WorkdirSession
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(CURRENT_DIR, "static")
 
 
-def test_workdir_manager(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -> None:
+def test_somefile(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -> None:
+    with SomeFile(f"{STATIC_DIR}/simple_data.json") as simple_json_file:
+        assert simple_data == simple_json_file
+
+    simple_data_10 = [simple_data] * 10
+    with SomeFile(f"{STATIC_DIR}/simple_data_10.ndjson") as simple_ndjson_file:
+        assert simple_data_10 == simple_ndjson_file
+
+    with SomeFile(f"{STATIC_DIR}/simple_dataframe.csv") as simple_csv_file:
+        assert_frame_equal(simple_dataframe, simple_csv_file)
+
+    with SomeFile(f"{STATIC_DIR}/simple_dataframe.tsv") as simple_tsv_file:
+        assert_frame_equal(simple_dataframe, simple_tsv_file)
+
+
+def test_workdir_session(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -> None:
     # Regular session
     with WorkdirSession(STATIC_DIR) as wd:
         simple_json_file: dict = wd.open("simple_data.json")
