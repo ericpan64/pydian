@@ -54,3 +54,28 @@ def test_workdir_session(simple_data: dict[str, Any], simple_dataframe: pl.DataF
     #     temp_json_file = wd.open("simple_data.json")
 
     # assert len(temp_json_file) == 0
+
+
+def test_workdir_list_files(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -> None:
+    with WorkdirSession(STATIC_DIR) as wd:
+        # Try regex search
+        for obj in wd.re_search(r".*\.json"):
+            assert isinstance(obj, dict)
+
+        for obj in wd.re_search(r".*\.ndjson"):
+            assert isinstance(obj, list)
+            if len(obj) > 0:
+                assert isinstance(obj[0], dict)
+
+        for obj in wd.re_search(r".*\.csv"):
+            assert isinstance(obj, pl.DataFrame)
+
+        for obj in wd.re_search(r".*\.tsv"):
+            assert isinstance(obj, pl.DataFrame)
+
+        # On a failed search: return an empty list.
+        # User can handle this however they want!
+        count = 0
+        for obj in wd.re_search(r"some_filename_not_there\.woah"):
+            count += 1
+        assert count == 0

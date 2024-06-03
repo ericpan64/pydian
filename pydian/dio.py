@@ -1,6 +1,7 @@
 import gc
 import json
 import os
+import re
 from typing import Any
 
 import polars as pl
@@ -59,16 +60,16 @@ class WorkdirSession:
     cd: str = ""
     _close_files_on_exit: bool = False
     _curr_open_files: dict[str, Any] | None = None
-    _files: list[str] | None = None
+    _filenames: list[str] | None = None
 
     def __init__(self, workdir: str, close_files_on_exit: bool = False):
         self.cd = workdir
         self._close_files_on_exit = close_files_on_exit
         self._curr_open_files = {}
-        self._files = []
+        self._filenames = []
 
     def __enter__(self):
-        self._files = os.listdir(self.cd)
+        self._filenames = os.listdir(self.cd)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -83,3 +84,14 @@ class WorkdirSession:
         if self._curr_open_files is not None:
             self._curr_open_files[filename] = data
         return data
+
+    def re_search(self, regex_pattern: re.Pattern | str) -> list[Any]:
+        # Look over files, and open + return all matches
+        res = []
+        if not isinstance(self._filenames, list):
+            raise RuntimeError("`_filenames` isn't set: issue with WorkdirSession state!")
+        for filename in self._filenames:
+            if re.search(regex_pattern, filename):
+                fp = os.path.join(self.cd, filename)
+                res.append(SomeFile.open(fp))
+        return res
