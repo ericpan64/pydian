@@ -4,14 +4,14 @@ from pydantic import BaseModel
 from result import Err, Ok
 
 from pydian.rules import (
+    RC,
+    RGC,
     InRange,
     IsRequired,
     IsType,
     NotRequired,
     Rule,
-    RuleConstraint,
     RuleGroup,
-    RuleGroupConstraint,
 )
 from pydian.validation import validate
 
@@ -53,8 +53,8 @@ def test_validation_map_gen() -> None:
                 IsType(dict),
                 RuleGroup(
                     [
-                        IsType(str, constraints=RuleConstraint.REQUIRED, at_key="id"),
-                        IsType(bool, constraints=RuleConstraint.REQUIRED, at_key="active"),
+                        IsType(str, constraints=RC.REQUIRED, at_key="id"),
+                        IsType(bool, constraints=RC.REQUIRED, at_key="active"),
                         IsType(str, at_key="_some_new_key"),
                     ]
                 ),
@@ -79,12 +79,10 @@ def test_validation_map_gen() -> None:
                                 IsType(dict),
                                 RuleGroup(
                                     [
-                                        IsType(
-                                            str, constraints=RuleConstraint.REQUIRED, at_key="id"
-                                        ),
+                                        IsType(str, constraints=RC.REQUIRED, at_key="id"),
                                         IsType(
                                             bool,
-                                            constraints=RuleConstraint.REQUIRED,
+                                            constraints=RC.REQUIRED,
                                             at_key="active",
                                         ),
                                         IsType(str, at_key="_some_new_key"),
@@ -118,26 +116,31 @@ def test_validate(simple_data: dict[str, Any]) -> None:
 
     # Example of fail
     # TODO: This is failing due to RuleGroup eval, fix with other tests!
-    v_second = {
+    # TODO: want to do something like below -- but can't since mangled to `RuleGroup`. Helper fn?
+    # v_pass_map["data"]["patient"]["_some_new_key"] &= IsRequired()
+    v_pass_map = {
         "data": IsRequired()
         & {
             "patient": IsRequired()
             & {
                 "id": IsRequired() & str,
                 "active": IsRequired() & bool,
-                "_some_new_key": str & IsRequired(),  # _Changed to required_
+                "_some_new_key": IsRequired() & str,  # changed to required!
             }
         }
     }
-    v_err_missing_key = validate(simple_data, v_second)
+    v_err_missing_key = validate(simple_data, v_pass_map)
     assert isinstance(v_err_missing_key, Err)
 
     # Example of fail -- will still validate when present, and ignore if not present
     # TODO: This is a bit tricky -- this will need defining `NotRequired` more concretely too...
-    v_second["data"] &= NotRequired()
-    v_err_validate_when_present = validate(simple_data, v_second)
+    v_pass_map["data"] &= NotRequired()
+    v_err_validate_when_present = validate(simple_data, v_pass_map)
     assert isinstance(v_err_validate_when_present, Err)
-    assert isinstance(validate(dict(), v_second), Ok)
+    assert isinstance(validate(dict(), v_pass_map), Ok)
+
+    # TODO: Add list validation
+    ...
 
 
 # NOTE: this will implicitly get tested with above, since `validate` will drive key usage
