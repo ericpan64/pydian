@@ -193,28 +193,39 @@ class Rule:
         return self.__or__(other)
 
 
-class RuleGroup(list):
+class RuleGroup(dict):
     """
-    A `RuleGroup` is a callable list that can contain:
+    A `RuleGroup` is a callable dict that can contain:
     - One or many `Rule`s
     - Other `RuleGroup`s (ending in a terminal `RuleGroup` of just `Rule`s at some point)
 
+    The typing of the dict: `dict[None | str, list[Rule | RuleGroup]]`.
+
+    A single `RuleGroup` should only be 1-layer, though can contain nested `RuleGroup`s
+
     When called, a `RuleGroup` evaluates all contained `Rule`/`RuleGroups` and combines the result into:
-    - Ok([rules_passed, ...])
-    - Err([rules_failed, ...])
+    - Ok([rules_passed])
+    - Err([rules_failed])
+
+    The structure of a "RuleGroup":
+    {
+        ...: Rule | RuleGroup
+        "_key_prefix_for_following": Rule | RuleGroup
+    }
 
     A constraint defines whether the result is `Ok` or `Err` based on contained `Rule`/`RuleGroups`.
       Additionally, individual `Rule`s may have constraints which the `RuleGroup` manages
     """
 
+    _default_key: Any = Ellipsis
     _group_constraints: set[RGC] = None  # type: ignore
     _n_rules: int = (
         0  # TODO: this is buggy... define behavior and reduce ambiguity (at some point)!
     )
-    # NOTE: _key is needed here to save nesting information
-    #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
-    #   rather we should infer that during parsing
-    _key: str | None = None
+    # # NOTE: _key is needed here to save nesting information
+    # #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
+    # #   rather we should infer that during parsing
+    # _key: str | None = None
 
     def __init__(
         self,
@@ -222,7 +233,7 @@ class RuleGroup(list):
         constraints: RGC | Collection[RGC] = RGC.ALL_RULES,
         at_key: str | None = None,
     ):
-        self._key = at_key
+        self._default_key = at_key
 
         # Init and add constraints
         self._group_constraints = set()
@@ -233,8 +244,9 @@ class RuleGroup(list):
                 self._group_constraints.add(c)
 
         # Type-check and handle items
+        res = {self._default_key: []}
         if items:
-            res = []
+            res_list = res[at_key]
             # Check items
             if not isinstance(items, Iterable):
                 items = [items]
@@ -247,14 +259,12 @@ class RuleGroup(list):
                         raise ValueError(
                             f"All items in a `RuleGroup` must be `Rule`s or `RuleGroup`s, got: {type(it)}"
                         )
-                res.append(it)
+                res_list.append(it)
                 if isinstance(it, RuleGroup):
                     self._n_rules += it._n_rules
                 else:
                     self._n_rules += 1
-            super().__init__(res)
-        else:
-            super().__init__()
+        super().__init__(res)
 
     def append(self, item: Rule | RuleGroup | Callable):
         if not (isinstance(item, Rule) or isinstance(item, RuleGroup)):
@@ -266,7 +276,8 @@ class RuleGroup(list):
             self._n_rules += len(item)
         else:
             self._n_rules += 1
-        super().append(item)
+        default_list: list = self[self._default_key]
+        default_list.append(item)
 
     @staticmethod
     def combine(
@@ -290,6 +301,7 @@ class RuleGroup(list):
         6. & Callable -> Add the callable as a Rule
         7. & some primitive -> Add an equality check for the primitive
         """
+        # TODO: Preserve key information!
         if isinstance(other, RuleGroup):
             return RuleGroup((first, other), set_constraint)
         res = deepcopy(first)
@@ -314,12 +326,13 @@ class RuleGroup(list):
         return res
 
     def __call__(self, source: Any, *args) -> Ok[RuleGroup] | Err[RuleGroup]:
+        # NEXT_STEP: Write this to handle other `RGC` constraints (should pass current `validate` test failure)
         rules_passed, rules_failed = RuleGroup(), RuleGroup()
 
         # Apply key unnesting logic
         # NOTE: only when source is a dict. Design choice!
-        if isinstance(source, dict) and self._key:
-            source = get(source, self._key)
+        if isinstance(source, dict) and self._default_key != Ellipsis:
+            source = get(source, self._default_key)
 
         # Chain calls for each contained rule
         for rule_or_rg in self:
