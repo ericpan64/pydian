@@ -4,7 +4,6 @@ from __future__ import (  # Used to recursively type annotate (e.g. `Rule` in `c
 
 import inspect
 from collections.abc import Callable, Collection, Iterable
-from copy import deepcopy
 from enum import Enum
 from typing import Any
 
@@ -12,7 +11,7 @@ from result import Err, Ok
 
 import pydian.partials as p
 
-from .dicts import get
+from ..dicts import get
 
 
 class RC(Enum):
@@ -102,9 +101,9 @@ class Rule:
         #  So the function needs to be saved on a file
         #  See: https://stackoverflow.com/a/335159
         try:
-            return f"{self._fn}:`{inspect.getsource(self._fn)}`"
+            return f"(Rule) {inspect.getsource(self._fn).strip()}`"
         except:
-            return f"{self._fn} (Rule)"
+            return f"(Rule) {self._fn}"
 
     def __hash__(self):
         return hash((self._fn, frozenset(self._constraints), self._key))
@@ -125,7 +124,9 @@ class Rule:
         """
         Generically returns a more specific rule when possible
         """
-        # TODO: think about other cases + abstractions?
+        # TODO: consider `InRange` (take range obj) and `InSet` (take set object)
+        from .specific import IsType  # Import here to avoid circular import
+
         if isinstance(v, type):
             res = IsType(v, at_key)  # type: ignore
         else:
@@ -247,13 +248,13 @@ class RuleGroup(list):
             case Rule():
                 res.append(other)
             case type():
-                res.append(IsType(other))
+                res.append(Rule.init_specific(other))
             case dict():
-                res.append(IsType(dict))  # Type check
+                res.append(Rule.init_specific(dict))  # Type check
                 drs = _dict_to_rulegroup(other)
                 res.append(drs)
             case list():
-                res.append(IsType(list))  # Type check
+                res.append(Rule.init_specific(list))  # Type check
                 lrs = _list_to_rulegroup(other)
                 res.append(lrs)
             case _:
@@ -333,135 +334,6 @@ class RuleGroup(list):
         return self.__or__(other)
 
 
-""" Custom Rules """
-
-
-class IsRequired(Rule):
-    """
-    A rule where the current field is required
-
-    For `RuleGroup`: keep default contraint
-    """
-
-    def __init__(self, at_key: str | None = None):
-        # For each rule, make it required
-        super().__init__(p.not_equivalent(None), RC.REQUIRED, at_key=at_key)
-
-    def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
-        """
-        Returns the same type as `other`
-        """
-        match other:
-            case Rule():
-                res = deepcopy(other)
-                res._constraints.add(RC.REQUIRED)  # type: ignore
-            case _:
-                # Check callable case here (cast into a `Rule`)
-                if not isinstance(other, RuleGroup) and callable(other):
-                    res = Rule.init_specific(other, RC.REQUIRED)
-                else:
-                    res = super().__and__(other)
-        return res
-
-    def __rand__(self, other):
-        return self.__and__(other)
-
-
-class NotRequired(Rule):
-    """
-    When combined with another rule, removes the Required constraint
-    """
-
-    def __init__(self, at_key: str | None = None):
-        # Initialize with dummy placeholder rule
-        super().__init__(lambda _: True, at_key=at_key)
-
-    def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
-        """
-        For a `Rule`: remove `REQUIRED`
-        For a `RuleGroup`: set to `ONLY_IF_KEY_PRESENT` -- this means it's optional, but validate if-present
-        """
-        match other:
-            case Rule():
-                res = deepcopy(other)
-                if RC.REQUIRED in res._constraints:
-                    res._constraints.remove(RC.REQUIRED)  # type: ignore
-            case RuleGroup():
-                # TODO: handle the "validate if present" condition
-                #   Consider: change this `_fn` to a `None` check, and `AT_LEAST_ONE` rule group
-                #   OR enforce the `ONLY_IF_KEY_PRESENT` constraint somewhere else
-                res = deepcopy(other)  # type: ignore
-                res._group_constraints = RGC.ONLY_IF_KEY_PRESENT  # type: ignore
-            case _:
-                res = super().__and__(other)
-                res._group_constraints = RGC.ONLY_IF_KEY_PRESENT  # type: ignore
-        return res
-
-    def __rand__(self, other: Rule | RuleGroup | Any):
-        return self.__and__(other)
-
-
-class InRange(Rule):
-    def __init__(
-        self, lower: int | None = None, upper: int | None = None, at_key: str | None = None
-    ):
-        """
-        Used to check if an list is within a size range, e.g.
-            [
-                str
-            ] & InRange(3, 5)
-          is a list of 3 to 5 `str` values
-
-        """
-        match (lower, upper):
-            case (int(), None):
-                fn = lambda l: len(l) >= lower
-            case (None, int()):
-                fn = lambda l: len(l) <= upper
-            case (int(), int()):
-                fn = lambda l: lower <= len(l) <= upper
-            case (None, None):
-                raise ValueError("Need to specify lower and/or upper bound: none received!")
-        super().__init__(fn, at_key=at_key)
-
-
-class MaxCount(Rule):
-    def __init__(
-        self,
-        upper: int,
-        constraints: RC | set[RC] | None = None,
-        at_key: str | None = None,
-    ):
-        super().__init__(p.lte(upper), constraints, at_key)
-
-
-class MinCount(Rule):
-    def __init__(
-        self,
-        lower: int,
-        constraints: RC | set[RC] | None = None,
-        at_key: str | None = None,
-    ):
-        super().__init__(p.gte(lower), constraints, at_key)
-
-
-class IsType(Rule):
-    def __init__(
-        self,
-        typ: type,
-        constraints: RC | set[RC] | None = None,
-        at_key: str | None = None,
-    ):
-        super().__init__(p.isinstance_of(typ), constraints, at_key)
-
-
-class InSet(Rule):
-    """IDEA: have this be the enum variant. E.g. one of these literals"""
-
-    def __init__(self, s: set[Any]):
-        super().__init__(p.contained_in(s))
-
-
 """ Helper Functions """
 
 
@@ -527,10 +399,10 @@ def _dict_to_rulegroup(d: dict[str, Rule | RuleGroup], key_prefix: str | None = 
                 v._key = at_key
                 res.append(v)
             case dict():
-                res.append(IsType(dict, at_key=at_key))
+                res.append(Rule.init_specific(dict, at_key=at_key))
                 res.append(_dict_to_rulegroup(v, key_prefix=at_key))
             case list():
-                res.append(IsType(list, at_key=k))
+                res.append(Rule.init_specific(list, at_key=k))
                 res.append(_list_to_rulegroup(v, key_prefix=at_key))
             case _:
                 if callable(v):

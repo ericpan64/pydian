@@ -3,17 +3,8 @@ from typing import Any, Optional
 from pydantic import BaseModel
 from result import Err, Ok
 
-from pydian.rules import (
-    RC,
-    RGC,
-    InRange,
-    IsRequired,
-    IsType,
-    NotRequired,
-    Rule,
-    RuleGroup,
-)
-from pydian.validation import validate
+from pydian.validation import RC, RGC, Rule, RuleGroup, validate
+from pydian.validation.specific import InRange, IsRequired, IsType, NotRequired
 
 
 def test_pydantic(simple_data: dict[str, Any]) -> None:
