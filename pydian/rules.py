@@ -132,61 +132,15 @@ class Rule:
             res = Rule(v, constraint, at_key)  # type: ignore
         return res
 
-    @staticmethod
-    def combine(
-        rule: Rule,
-        other: Rule | RuleGroup | Any,
-        set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.ONLY_IF_KEY_PRESENT),
-    ) -> RuleGroup:
-        """
-        Combines a `Rule` with another value. By default, `RGC.ALL_REQUIRED_RULES` is used,
-          so all contained optional `Rule`s become optional by default (implicitly).
-
-        The new RuleGroup will contain the original Rule + extras based on the cases below.
-
-        Here are the expected cases:
-        1. & Rule | RuleGroup -> Add it
-        2. & type -> Add type check
-        3. & dict -> Add 1) type check, 2) contents of dict
-        4. & list -> Add 1) type check, 2) contents of list
-        5. & Callable -> Add the callable as a Rule
-        6. & some primitive -> Add an equality check for the primitive
-        """
-        res = RuleGroup(rule, set_constraint)
-        match other:
-            case Rule() | RuleGroup():
-                res.append(other)
-            case type():
-                res.append(IsType(other))
-            case dict():
-                # Add the typecheck
-                res.append(IsType(dict))
-                # For each item in dict, save key information and add to res
-                drs = _dict_to_rulegroup(other)
-                res.append(drs)
-            case list():
-                # Add the typecheck
-                res.append(IsType(list))
-                # For each item in list, save key information and add to res
-                lrs = _list_to_rulegroup(other)
-                res.append(lrs)
-            case _:
-                if callable(other):
-                    res.append(Rule.init_specific(other))
-                else:
-                    # Exact value check
-                    res.append(Rule(p.equals(other)))
-        return res
-
     def __and__(self, other: Rule | RuleGroup | Any):
-        return Rule.combine(self, other)
+        return RuleGroup.combine(self, other)
 
     def __rand__(self, other: Rule | RuleGroup | Any):
         # Operation intended to be commutative
         return self.__and__(other)
 
     def __or__(self, other: Rule | RuleGroup | Any):
-        return Rule.combine(self, other, RGC.AT_LEAST_ONE)
+        return RuleGroup.combine(self, other, RGC.AT_LEAST_ONE)
 
     def __ror__(self, other: Rule | RuleGroup | Any):
         # Operation intended to be commutative
@@ -270,19 +224,15 @@ class RuleGroup(list):
 
     @staticmethod
     def combine(
-        first: RuleGroup,
+        first: Rule | RuleGroup,
         other: Rule | RuleGroup | Any,
         set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.ONLY_IF_KEY_PRESENT),
     ) -> RuleGroup:
         """
         Combines a `RuleGroup` with another value. By default, all data is optional by default
 
-        The same rules apply as `Rule.combine`, except rules are generally copied into the first `RuleGroup`
-          as opposed to creating a new "parent" `RuleGroup`.
-
         Here are the expected cases:
         1. & RuleGroup -> Make a new RuleGroup with both existing ones (i.e. add a nesting parent)
-        (same as for Rule.combine, except add it to the current RuleGroup)
         2. & Rule -> Add it to current RuleGroup
         3. & type -> Add type check
         4. & dict -> Add 1) type check, 2) contents of dict
@@ -292,7 +242,7 @@ class RuleGroup(list):
         """
         if isinstance(other, RuleGroup):
             return RuleGroup((first, other), set_constraint)
-        res = deepcopy(first)
+        res = RuleGroup(first, set_constraint)
         match other:
             case Rule():
                 res.append(other)
