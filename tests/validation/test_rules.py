@@ -4,7 +4,8 @@ from typing import Any
 from result import Err, Ok
 
 import pydian.partials as p
-from pydian.rules import RGC, InRange, IsRequired, IsType, NotRequired, Rule, RuleGroup
+from pydian.validation import RGC, Rule, RuleGroup
+from pydian.validation.specific import InRange, IsRequired, IsType, NotRequired
 
 
 def test_rule() -> None:
