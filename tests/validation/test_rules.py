@@ -4,7 +4,8 @@ from typing import Any
 from result import Err, Ok
 
 import pydian.partials as p
-from pydian.rules import RGC, InRange, IsRequired, IsType, NotRequired, Rule, RuleGroup
+from pydian.validation import Rule, RuleGroup
+from pydian.validation.custom import RGC, InRange, IsRequired, IsType, NotRequired
 
 
 def test_rule() -> None:
@@ -67,6 +68,7 @@ def test_rulegroup() -> None:
 
 
 def test_nested_rulegroup() -> None:
+    # NEXT_STEP: Fix this test! Main impact from changing `RuleGroup` from `list` -> `dict`
     is_str = Rule(lambda x: isinstance(x, str))
     starts_with_upper = Rule(lambda x: x[0].isupper())
     is_not_list = Rule(lambda x: not isinstance(x, list))

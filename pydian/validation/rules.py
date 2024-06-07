@@ -3,6 +3,8 @@ from __future__ import (  # Used to recursively type annotate (e.g. `Rule` in `c
 )
 
 import inspect
+
+from collections import defaultdict
 from collections.abc import Callable, Collection, Iterable
 from copy import deepcopy
 from enum import Enum
@@ -11,9 +13,7 @@ from typing import Any
 from result import Err, Ok
 
 import pydian.partials as p
-
-from .dicts import get
-
+from pydian.dicts import get
 
 class RC(Enum):
     """
@@ -36,9 +36,9 @@ class RGC(Enum):
     RGC takes precedent over RC (i.e. a `RGC` setting will override a `RC` setting when applicable)
     """
 
-    ALL_REQUIRED_RULES = -2  # NOTE: This implicitly
-    ALL_RULES = -1  # NOTE: This implicitly makes everything _required_
-    ONLY_IF_KEY_PRESENT = 0  # NOTE: Optional values should be validated _if present_
+    ALL_REQUIRED_RULES = -2  # NOTE: This implicitly makes everything _optional_ by default
+    ALL_RULES = -1           # NOTE: This implicitly makes everything _required_ by default
+    WHEN_KEY_IS_PRESENT = 0  # NOTE: This means optional, but be strict if it's there
     AT_LEAST_ONE = 1
     AT_LEAST_TWO = 2
     AT_LEAST_THREE = 3
@@ -112,7 +112,7 @@ class Rule:
     def __eq__(self, other: Rule | Any):
         if isinstance(other, Rule):
             # Rules are the same based on the code and the applied constraints
-            # TODO: I _think_ this will work, though need to test more thoroughly
+            # HACK: I _think_ this will work, though need to test more thoroughly
             #   e.g. this won't work for built-in callables like `str`, `bool`
             try:
                 return other._fn.__code__.co_code == self._fn.__code__.co_code
@@ -125,7 +125,8 @@ class Rule:
         """
         Generically returns a more specific rule when possible
         """
-        # TODO: think about other cases + abstractions?
+        # TODO: consider cases for `InRange`, `InSet`
+        from .custom import IsType # NOTE: avoiding circular imports
         if isinstance(v, type):
             res = IsType(v, at_key)  # type: ignore
         else:
@@ -136,7 +137,7 @@ class Rule:
     def combine(
         rule: Rule,
         other: Rule | RuleGroup | Any,
-        set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.ONLY_IF_KEY_PRESENT),
+        set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.WHEN_KEY_IS_PRESENT),
     ) -> RuleGroup:
         """
         Combines a `Rule` with another value. By default, `RGC.ALL_REQUIRED_RULES` is used,
@@ -152,6 +153,9 @@ class Rule:
         5. & Callable -> Add the callable as a Rule
         6. & some primitive -> Add an equality check for the primitive
         """
+        # TODO: Merge this with `RuleGroup.combine`, it's basically the same! (do after tests work)
+
+        from .custom import IsType # Do this to avoid circular import
         res = RuleGroup(rule, set_constraint)
         match other:
             case Rule() | RuleGroup():
@@ -193,15 +197,14 @@ class Rule:
         return self.__or__(other)
 
 
-class RuleGroup(dict):
+class RuleGroup(defaultdict):
     """
-    A `RuleGroup` is a callable dict that can contain:
-    - One or many `Rule`s
-    - Other `RuleGroup`s (ending in a terminal `RuleGroup` of just `Rule`s at some point)
+    A `RuleGroup` is a callable dict that can contains `Rule`s and/or other `RuleGroup`s
 
-    The typing of the dict: `dict[None | str, list[Rule | RuleGroup]]`.
-
-    A single `RuleGroup` should only be 1-layer, though can contain nested `RuleGroup`s
+    The typing of the dict: `dict[str, list[Rule | RuleGroup]]`. 
+    
+    The key indicates a particular key prefix that should apply to all corresponding rules in the list.
+      The default is the empty string, meaning the Rule has any applicable key information.
 
     When called, a `RuleGroup` evaluates all contained `Rule`/`RuleGroups` and combines the result into:
     - Ok([rules_passed])
@@ -209,29 +212,23 @@ class RuleGroup(dict):
 
     The structure of a "RuleGroup":
     {
-        ...: Rule | RuleGroup
-        "_key_prefix_for_following": Rule | RuleGroup
+        "": [Rule | RuleGroup, ...]
+        "_key_prefix_for_following": [Rule | RuleGroup, ...]
     }
 
     A constraint defines whether the result is `Ok` or `Err` based on contained `Rule`/`RuleGroups`.
       Additionally, individual `Rule`s may have constraints which the `RuleGroup` manages
     """
 
-    _default_key: Any = Ellipsis
+    _default_key: str = ""
     _group_constraints: set[RGC] = None  # type: ignore
-    _n_rules: int = (
-        0  # TODO: this is buggy... define behavior and reduce ambiguity (at some point)!
-    )
-    # # NOTE: _key is needed here to save nesting information
-    # #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
-    # #   rather we should infer that during parsing
-    # _key: str | None = None
+    _n_rules: int = 0
 
     def __init__(
         self,
         items: Rule | RuleGroup | Callable | Collection[Rule | RuleGroup | Callable] | None = None,
         constraints: RGC | Collection[RGC] = RGC.ALL_RULES,
-        at_key: str | None = None,
+        at_key: str = "",
     ):
         self._default_key = at_key
 
@@ -246,7 +243,6 @@ class RuleGroup(dict):
         # Type-check and handle items
         res = {self._default_key: []}
         if items:
-            res_list = res[at_key]
             # Check items
             if not isinstance(items, Iterable):
                 items = [items]
@@ -259,13 +255,15 @@ class RuleGroup(dict):
                         raise ValueError(
                             f"All items in a `RuleGroup` must be `Rule`s or `RuleGroup`s, got: {type(it)}"
                         )
-                res_list.append(it)
+                res[at_key].append(it)
                 if isinstance(it, RuleGroup):
                     self._n_rules += it._n_rules
                 else:
                     self._n_rules += 1
-        super().__init__(res)
+        super().__init__(list, res)
 
+    # TODO: Rename this to avoid ambiguity with a list
+    # ... `add_item`?
     def append(self, item: Rule | RuleGroup | Callable):
         if not (isinstance(item, Rule) or isinstance(item, RuleGroup)):
             if callable(item):
@@ -283,7 +281,7 @@ class RuleGroup(dict):
     def combine(
         first: RuleGroup,
         other: Rule | RuleGroup | Any,
-        set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.ONLY_IF_KEY_PRESENT),
+        set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.WHEN_KEY_IS_PRESENT),
     ) -> RuleGroup:
         """
         Combines a `RuleGroup` with another value. By default, all data is optional by default
@@ -309,13 +307,13 @@ class RuleGroup(dict):
             case Rule():
                 res.append(other)
             case type():
-                res.append(IsType(other))
+                res.append(Rule.init_specific(other))
             case dict():
-                res.append(IsType(dict))  # Type check
+                res.append(Rule.init_specific(dict))  # Type check
                 drs = _dict_to_rulegroup(other)
                 res.append(drs)
             case list():
-                res.append(IsType(list))  # Type check
+                res.append(Rule.init_specific(list))  # Type check
                 lrs = _list_to_rulegroup(other)
                 res.append(lrs)
             case _:
@@ -325,45 +323,80 @@ class RuleGroup(dict):
                     res.append(Rule(p.equals(other)))
         return res
 
-    def __call__(self, source: Any, *args) -> Ok[RuleGroup] | Err[RuleGroup]:
-        # NEXT_STEP: Write this to handle other `RGC` constraints (should pass current `validate` test failure)
-        rules_passed, rules_failed = RuleGroup(), RuleGroup()
-
-        # Apply key unnesting logic
-        # NOTE: only when source is a dict. Design choice!
-        if isinstance(source, dict) and self._default_key != Ellipsis:
-            source = get(source, self._default_key)
+    def __call__(self, source: Any, *args: Any) -> Ok[list[RuleGroup]] | Err[list[RuleGroup]]:
+        rules_passed, rules_failed = list(), list()
 
         # Chain calls for each contained rule
-        for rule_or_rg in self:
-            try:
-                # NOTE: Both `Ok`, `Err` are truthy as-is, want `Err` to fail rule
-                #   `<Err>.unwrap()` throws exception
-                if rule_or_rg(source, *args).unwrap():
-                    self._consume_rules_inplace(rule_or_rg, rules_passed)
-                else:
-                    self._consume_rules_inplace(rule_or_rg, rules_failed)
-            except:
-                # TODO: include other info about exception?
-                self._consume_rules_inplace(rule_or_rg, rules_failed)
+        for k, r_rg_list in self.items():
+            # Apply key unnesting logic
+            # NOTE: only when source is a dict. Design choice!
+            if isinstance(source, dict) and self._default_key != Ellipsis:
+                r_rg_input = get(source, self._default_key)
+            else:
+                r_rg_input = source
+            for r_rg in r_rg_list:
+                try:
+                    # NOTE: Both `Ok`, `Err` are truthy as-is, want `Err` to fail rule
+                    #   `<Err>.unwrap()` throws exception
+                    if r_rg(r_rg_input, *args).unwrap():
+                        self._consume_rules_inplace(r_rg, rules_passed)
+                    else:
+                        self._consume_rules_inplace(r_rg, rules_failed)
+                except:
+                    # TODO: include other info about exception?
+                    self._consume_rules_inplace(r_rg, rules_failed)
 
         # Check result and return
-        res: Ok | Err = Err(rules_failed)
-        ## Check for failed required rules -- return Err early if so
-        for r in rules_failed:
-            if isinstance(r, Rule) and (RC.REQUIRED in r._constraints):
-                return Err(rules_failed)
-        ## Check `ALL_RULES`, otherwise check number based on value
-        # TODO: update logic to handle multiple constraints
-        for c in self._group_constraints:
-            if (c is RGC.ALL_RULES and len(rules_passed) == self._n_rules) or (
-                c is not RGC.ALL_RULES and len(rules_passed) >= c.value
-            ):
-                rules_passed = _unnest_rulegroup(rules_passed)
-                res = Ok(rules_passed)
-            else:
-                rules_failed = _unnest_rulegroup(rules_failed)
-                res = Err(rules_failed)
+        # rules_passed = _unnest_rulegroup(rules_passed)
+        # rules_failed = _unnest_rulegroup(rules_failed)
+        res: Ok | Err = Ok(rules_passed)
+        ## Check all cases for failures, otherwise pass!
+        for rgc in self._group_constraints:
+            match rgc:
+                # `ALL_RULES` takes precedent over all other cases, so we can exit early
+                case RGC.ALL_RULES:
+                    ## Check success criteria
+                    if len(rules_passed) == self._n_rules:
+                        res = Ok(rules_passed)
+                        break
+                    else:
+                        res = Err(rules_failed)
+                        break
+                case RGC.ALL_REQUIRED_RULES:
+                    ## Check for failed required rules -- return Err early if so
+                    for r_rg in rules_failed:
+                        # TODO: Need to include `RuleGroup` case (which is also getting defined here...)
+                        if isinstance(r_rg, Rule) and (RC.REQUIRED in r_rg._constraints):
+                            res = Err(rules_failed)
+                case RGC.WHEN_KEY_IS_PRESENT:
+                    # Ok. Here, we have the rules that passed/failed.
+                    # Basically, this is saying a non-required rule that failed
+                    #  should disqualify `Ok` if the key was actually there
+                    #  (when the key isn't there, having the rule fail is fine)
+                    
+                    # So: for each of the failed rules, figure-out which key it was at. 
+                    #  Then check that key was in the source data...
+                    # ... either need to pass this data up, or pass the `WHEN_KEY_IS_PRESENT` down...
+                    failed_keys = set()
+                    for r_rg in rules_failed:
+                        if isinstance(r_rg, Rule) and r_rg._key:
+                            failed_keys.add(r_rg._key)
+                        elif isinstance(r_rg, RuleGroup):
+                            # TODO: Test this!
+                            for k in _get_all_seen_keys(r_rg):
+                                failed_keys.add(k)
+                        else:
+                            raise TypeError(f"Got unexpected type when evaluating RuleGroup: {type(r_rg)}")
+                    for k in failed_keys:
+                        if get(source, k):
+                            res = Err(rules_failed)
+                            break
+                case RGC.AT_LEAST_ONE | RGC.AT_LEAST_TWO | RGC.AT_LEAST_THREE:
+                    if len(rules_passed) < rgc.value:
+                        res = Err(rules_failed)
+                case _val:
+                    raise RuntimeError(f"Got unexpected runtime RuleGroup Constraint: {_val}")
+
         return res
 
     def _consume_rules_inplace(self, source: RuleGroup | Rule, target: RuleGroup) -> None:
@@ -396,134 +429,6 @@ class RuleGroup(dict):
         return self.__or__(other)
 
 
-""" Custom Rules """
-
-
-class IsRequired(Rule):
-    """
-    A rule where the current field is required
-
-    For `RuleGroup`: keep default contraint
-    """
-
-    def __init__(self, at_key: str | None = None):
-        # For each rule, make it required
-        super().__init__(p.not_equivalent(None), RC.REQUIRED, at_key=at_key)
-
-    def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
-        """
-        Returns the same type as `other`
-        """
-        match other:
-            case Rule():
-                res = deepcopy(other)
-                res._constraints.add(RC.REQUIRED)  # type: ignore
-            case _:
-                # Check callable case here (cast into a `Rule`)
-                if not isinstance(other, RuleGroup) and callable(other):
-                    res = Rule.init_specific(other, RC.REQUIRED)
-                else:
-                    res = super().__and__(other)
-        return res
-
-    def __rand__(self, other):
-        return self.__and__(other)
-
-
-class NotRequired(Rule):
-    """
-    When combined with another rule, removes the Required constraint
-    """
-
-    def __init__(self, at_key: str | None = None):
-        # Initialize with dummy placeholder rule
-        super().__init__(lambda _: True, at_key=at_key)
-
-    def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
-        """
-        For a `Rule`: remove `REQUIRED`
-        For a `RuleGroup`: set to `ONLY_IF_KEY_PRESENT` -- this means it's optional, but validate if-present
-        """
-        match other:
-            case Rule():
-                res = deepcopy(other)
-                if RC.REQUIRED in res._constraints:
-                    res._constraints.remove(RC.REQUIRED)  # type: ignore
-            case RuleGroup():
-                # TODO: handle the "validate if present" condition
-                #   Consider: change this `_fn` to a `None` check, and `AT_LEAST_ONE` rule group
-                #   OR enforce the `ONLY_IF_KEY_PRESENT` constraint somewhere else
-                res = deepcopy(other)  # type: ignore
-                res._group_constraints = RGC.ONLY_IF_KEY_PRESENT  # type: ignore
-            case _:
-                res = super().__and__(other)
-                res._group_constraints = RGC.ONLY_IF_KEY_PRESENT  # type: ignore
-        return res
-
-    def __rand__(self, other: Rule | RuleGroup | Any):
-        return self.__and__(other)
-
-
-class InRange(Rule):
-    def __init__(
-        self, lower: int | None = None, upper: int | None = None, at_key: str | None = None
-    ):
-        """
-        Used to check if an list is within a size range, e.g.
-            [
-                str
-            ] & InRange(3, 5)
-          is a list of 3 to 5 `str` values
-
-        """
-        match (lower, upper):
-            case (int(), None):
-                fn = lambda l: len(l) >= lower
-            case (None, int()):
-                fn = lambda l: len(l) <= upper
-            case (int(), int()):
-                fn = lambda l: lower <= len(l) <= upper
-            case (None, None):
-                raise ValueError("Need to specify lower and/or upper bound: none received!")
-        super().__init__(fn, at_key=at_key)
-
-
-class MaxCount(Rule):
-    def __init__(
-        self,
-        upper: int,
-        constraints: RC | set[RC] | None = None,
-        at_key: str | None = None,
-    ):
-        super().__init__(p.lte(upper), constraints, at_key)
-
-
-class MinCount(Rule):
-    def __init__(
-        self,
-        lower: int,
-        constraints: RC | set[RC] | None = None,
-        at_key: str | None = None,
-    ):
-        super().__init__(p.gte(lower), constraints, at_key)
-
-
-class IsType(Rule):
-    def __init__(
-        self,
-        typ: type,
-        constraints: RC | set[RC] | None = None,
-        at_key: str | None = None,
-    ):
-        super().__init__(p.isinstance_of(typ), constraints, at_key)
-
-
-class InSet(Rule):
-    """IDEA: have this be the enum variant. E.g. one of these literals"""
-
-    def __init__(self, s: set[Any]):
-        super().__init__(p.contained_in(s))
-
 
 """ Helper Functions """
 
@@ -533,12 +438,33 @@ def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
     Removes an unused outer nesting
     """
     res = rs
-    if rs._group_constraints is not RGC.ONLY_IF_KEY_PRESENT and len(rs) == 1:
+    if rs._group_constraints is not RGC.WHEN_KEY_IS_PRESENT and len(rs) == 1:
         (item,) = rs
         if isinstance(item, RuleGroup):
             res = item
     return res
 
+def _get_all_seen_keys(rg: RuleGroup, key_prefix: str = "") -> list[str]:
+    """
+    Iterate throguh a nested RuleGroup and try to reconstruct key-related data
+        (this should be present for nested groups)
+    """
+    res = []
+    for k, v in rg.items():
+        if k is not Ellipsis and key_prefix:
+            k = f"{key_prefix}.{k}"
+        for r_rg in v:
+            if isinstance(r_rg, Rule) and r_rg._key:
+                if k is not Ellipsis:
+                    res.append(f"{k}.{r_rg._key}")
+                else:
+                    res.append(r_rg._key)
+            elif isinstance(r_rg, RuleGroup):
+                new_prefix = k if k is not Ellipsis else key_prefix
+                res.append(*_get_all_seen_keys(r_rg, new_prefix))
+            else:
+                raise RuntimeError(f"Got unexpeted type: {type(r_rg)}")
+    return res
 
 def _list_to_rulegroup(
     l: list[Callable | Rule | RuleGroup | dict | list], key_prefix: str | None = None

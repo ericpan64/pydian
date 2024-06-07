@@ -3,7 +3,7 @@ from typing import Any
 from pydantic import create_model
 from result import Err, Ok
 
-from .dicts import get
+from pydian.dicts import get
 from .rules import Rule, RuleGroup
 
 
@@ -18,6 +18,13 @@ def validate(
     # Try applying each rule at the given key
     failed_rules = []
     for k, r_rs in validation_map.items():
+        match r_rs:
+            case Rule():
+                ...
+            case RuleGroup():
+                ...
+            case _:
+                raise RuntimeError(f"Expected `Rule` or `RuleGroup`, got: {type(r_rs)}")
         # Add key information when available
         if r_rs._key:
             k = f"{k}.{r_rs._key}"
