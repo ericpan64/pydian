@@ -1,10 +1,10 @@
 from pydantic import BaseModel
 
-from .lib.types import MappingFunc
-from .mapper import Mapper
+from ..dicts.mapper import Mapper
+from ..types import MappingFunc
 
 
-class DataMapping(dict):
+class DictMapping(dict):
     """
     A class that maps data between established data standards.
 

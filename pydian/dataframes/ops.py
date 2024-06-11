@@ -10,7 +10,7 @@ from result import Err
 
 import pydian.partials as p
 
-from .lib.types import ApplyFunc, ConditionalCheck
+from ..types import ApplyFunc, ConditionalCheck
 
 REGEX_COMMA_EXCLUDE_BRACKETS = r",(?![^{}]*\})"
 

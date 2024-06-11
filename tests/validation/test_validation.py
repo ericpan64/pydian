@@ -3,17 +3,7 @@ from typing import Any, Optional
 from pydantic import BaseModel
 from result import Err, Ok
 
-from pydian.rules import (
-    InRange,
-    IsRequired,
-    IsType,
-    NotRequired,
-    Rule,
-    RuleConstraint,
-    RuleGroup,
-    RuleGroupConstraint,
-)
-from pydian.validation import validate
+from pydian.validation import RC, IsRequired, IsType, NotRequired, RuleGroup, validate
 
 
 def test_pydantic(simple_data: dict[str, Any]) -> None:
@@ -53,8 +43,8 @@ def test_validation_map_gen() -> None:
                 IsType(dict),
                 RuleGroup(
                     [
-                        IsType(str, constraints=RuleConstraint.REQUIRED, at_key="id"),
-                        IsType(bool, constraints=RuleConstraint.REQUIRED, at_key="active"),
+                        IsType(str, constraints=RC.REQUIRED, at_key="id"),
+                        IsType(bool, constraints=RC.REQUIRED, at_key="active"),
                         IsType(str, at_key="_some_new_key"),
                     ]
                 ),
@@ -79,12 +69,10 @@ def test_validation_map_gen() -> None:
                                 IsType(dict),
                                 RuleGroup(
                                     [
-                                        IsType(
-                                            str, constraints=RuleConstraint.REQUIRED, at_key="id"
-                                        ),
+                                        IsType(str, constraints=RC.REQUIRED, at_key="id"),
                                         IsType(
                                             bool,
-                                            constraints=RuleConstraint.REQUIRED,
+                                            constraints=RC.REQUIRED,
                                             at_key="active",
                                         ),
                                         IsType(str, at_key="_some_new_key"),

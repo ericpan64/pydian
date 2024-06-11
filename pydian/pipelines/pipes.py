@@ -5,7 +5,7 @@ from typing import Any, Callable, Collection
 
 from result import Err, Ok
 
-from .rules import Rule, RuleGroup
+from ..validation import Rule, RuleGroup
 
 
 @dataclass

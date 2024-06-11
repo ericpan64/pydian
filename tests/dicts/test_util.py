@@ -1,4 +1,4 @@
-from pydian.lib.util import flatten_list, remove_empty_values
+from pydian.dicts.util import flatten_list, remove_empty_values
 
 
 def test_remove_empty_values() -> None:

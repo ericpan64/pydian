@@ -5,10 +5,10 @@ from polars.testing import (
     assert_frame_equal,  # Do `type: ignore` to ignore the `Err` case
 )
 
-from pydian.dbio import DatabaseSession, DatabaseType
+from pydian.io import DatabaseSession, DatabaseType
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(CURRENT_DIR, "static")
+STATIC_DIR = os.path.join(CURRENT_DIR, "../static")
 
 
 def test_database_session(simple_dataframe: pl.DataFrame) -> None:

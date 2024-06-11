@@ -1,6 +1,15 @@
-# Pydian - pythonic data interchange
+# Pydian - developer-friendly data interchange
 
-Pydian is a pure Python library for readable and repeatable data mappings. Pydian reduces boilerplate for data manipulation and provides a framework for expressive data wrangling.
+Pydian is a pure Python library for readable and repeatable data wrangling. Pydian reduces boilerplate for data manipulation and provides a framework for expressive and functional data operations.
+
+Pydian takes an opinionated stance for data wrangling, preferring the following:
+1. Composition over inheritance
+2. Readability over raw performance (... for now!)
+3. Reusability over customization when converting between known standards, otherwise customization
+
+## Developer-friendly API
+
+
 
 Using Pydian, developers can collaboratively and incrementally write data mappings that are expressive, safe, and reusable. Similar to how libraries like React were able to streamline UI components for frontend development, Pydian aims to streamline data transformations for backend development.
 

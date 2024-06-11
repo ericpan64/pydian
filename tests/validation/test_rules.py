@@ -1,17 +1,14 @@
 from copy import deepcopy
-from typing import Any
 
 from result import Err, Ok
 
 import pydian.partials as p
-from pydian.rules import (
-    InRange,
+from pydian.validation import (  # InRange,; NotRequired,
+    RGC,
     IsRequired,
     IsType,
-    NotRequired,
     Rule,
     RuleGroup,
-    RuleGroupConstraint,
 )
 
 
@@ -42,9 +39,9 @@ def test_rulegroup() -> None:
 
     all_rules = [is_str, is_nonempty, starts_with_upper]
     rs_all = RuleGroup(all_rules)
-    rs_one = RuleGroup(all_rules, constraint=RuleGroupConstraint.ONE_OF)
-    rs_two = RuleGroup(all_rules, constraint=RuleGroupConstraint.TWO_OF)
-    rs_three = RuleGroup(all_rules, constraint=RuleGroupConstraint.THREE_OF)
+    rs_one = RuleGroup(all_rules, constraint=RGC.ONE_OF)
+    rs_two = RuleGroup(all_rules, constraint=RGC.TWO_OF)
+    rs_three = RuleGroup(all_rules, constraint=RGC.THREE_OF)
 
     PASS_ALL_STR = "Abc"
     PASS_ONE_STR = ""
@@ -102,7 +99,7 @@ def test_rule_constraint() -> None:
     is_nonempty = Rule(lambda x: len(x) > 0)
 
     # Test `Rule`.constraint
-    rs_one = RuleGroup([is_str_required, is_nonempty], RuleGroupConstraint.ONE_OF)
+    rs_one = RuleGroup([is_str_required, is_nonempty], RGC.ONE_OF)
     PASS_IS_STR_REQ = ""
     PASS_NONEMPTY: list[int] = [1, 2, 3]
 
@@ -138,7 +135,7 @@ def test_combine_rule() -> None:
         [
             IsRequired(),
             IsType(list),
-            RuleGroup([IsType(str), IsType(bool)], RuleGroupConstraint.ONE_OF),
+            RuleGroup([IsType(str), IsType(bool)], RGC.ONE_OF),
         ]
     )
 
@@ -185,7 +182,7 @@ def test_combine_rulegroup() -> None:
             some_rulegroup[0],
             some_rulegroup[1],
             IsType(list),
-            RuleGroup([IsType(str), IsType(bool)], RuleGroupConstraint.ONE_OF),
+            RuleGroup([IsType(str), IsType(bool)], RGC.ONE_OF),
         ]
     )
 

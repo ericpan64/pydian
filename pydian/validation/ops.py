@@ -1,9 +1,9 @@
 from typing import Any
 
-from pydantic import create_model
+# from pydantic import create_model
 from result import Err, Ok
 
-from .dicts import get
+from ..dicts import get
 from .rules import Rule, RuleGroup
 
 

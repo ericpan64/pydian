@@ -12,23 +12,23 @@ from result import Err, Ok
 
 import pydian.partials as p
 
-from .dicts import get
+from ..dicts import get
 
 
-class RuleConstraint(Enum):
+class RC(Enum):
     """
-    A constraint for a single `Rule` (`RuleGroup` is responsible for application)
+    RuleConstraint: A constraint for a single `Rule` (`RuleGroup` is responsible for application)
 
     Optional by default (i.e. no value specified)
     """
 
     REQUIRED = 1
-    # ONLY_IF = lambda fn: (RuleConstraint.REQUIRED, fn)  # Usage: RuleConstraint.ONLY_IF(some_fn)
+    # ONLY_IF = lambda fn: (RC.REQUIRED, fn)  # Usage: RC.ONLY_IF(some_fn)
 
 
-class RuleGroupConstraint(Enum):
+class RGC(Enum):
     """
-    Constraints on top of current `RuleGroup`
+    RuleGroupConstraint: Constraints on top of current `RuleGroup`
 
     Required by default (i.e. `ALL_OF`)
 
@@ -56,24 +56,24 @@ class Rule:
         raise ValueError("Rule was not defined!")
 
     _fn: Callable = lambda _: Rule._raise_undefined_rule_err()
-    _constraints: set[RuleConstraint] = None  # type: ignore
+    _constraints: set[RC] = None  # type: ignore
     _key: str | None = None
 
     def __init__(
         self,
         fn: Callable,
-        constraints: RuleConstraint | set[RuleConstraint] | None = None,
+        constraints: RC | set[RC] | None = None,
         at_key: str | None = None,
     ):
         self._fn = fn
         self._key = at_key  # Managed by `RuleGroup`
         self._constraints = set()
         match constraints:
-            case RuleConstraint():
+            case RC():
                 self._constraints.add(constraints)
             case Collection():
                 for c in constraints:
-                    if isinstance(c, RuleConstraint):
+                    if isinstance(c, RC):
                         self._constraints.add(c)
 
     def __call__(self, source: Any, *args) -> Ok[Any] | Err[str]:
@@ -118,9 +118,7 @@ class Rule:
         return NotImplemented
 
     @staticmethod
-    def init_specific(
-        v: Any, constraint: RuleConstraint | None = None, at_key: str | None = None
-    ) -> Rule:
+    def init_specific(v: Any, constraint: RC | None = None, at_key: str | None = None) -> Rule:
         """
         Generically returns a more specific rule when possible
         """
@@ -135,10 +133,10 @@ class Rule:
     def combine(
         rule: Rule,
         other: Rule | RuleGroup | Any,
-        set_constraint: RuleGroupConstraint = RuleGroupConstraint.ONE_OF,
+        set_constraint: RGC = RGC.ONE_OF,
     ) -> RuleGroup:
         """
-        Combines a `Rule` with another value. By default, `RuleGroupConstraint.ONE_OF` is used,
+        Combines a `Rule` with another value. By default, `RGC.ONE_OF` is used,
           so all contained optional `Rule`s become optional by default (implicitly).
 
         The new RuleGroup will contain the original Rule + extras based on the cases below.
@@ -185,7 +183,7 @@ class Rule:
         return self.__and__(other)
 
     def __or__(self, other: Rule | RuleGroup | Any):
-        return Rule.combine(self, other, RuleGroupConstraint.ONE_OF)
+        return Rule.combine(self, other, RGC.ONE_OF)
 
     def __ror__(self, other: Rule | RuleGroup | Any):
         # Operation intended to be commutative
@@ -206,7 +204,7 @@ class RuleGroup(list):
       Additionally, individual `Rule`s may have constraints which the `RuleGroup` manages
     """
 
-    _set_constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF  # default
+    _set_constraint: RGC = RGC.ALL_OF  # default
     _n_rules: int = (
         0  # TODO: this is buggy... define behavior and reduce ambiguity (at some point)!
     )
@@ -218,7 +216,7 @@ class RuleGroup(list):
     def __init__(
         self,
         items: Rule | RuleGroup | Callable | Collection[Rule | RuleGroup | Callable] | None = None,
-        constraint: RuleGroupConstraint = RuleGroupConstraint.ALL_OF,
+        constraint: RGC = RGC.ALL_OF,
         at_key: str | None = None,
     ):
         self._set_constraint = constraint
@@ -264,10 +262,10 @@ class RuleGroup(list):
     def combine(
         first: RuleGroup,
         other: Rule | RuleGroup | Any,
-        set_constraint: RuleGroupConstraint = RuleGroupConstraint.ONE_OF,
+        set_constraint: RGC = RGC.ONE_OF,
     ) -> RuleGroup:
         """
-        Combines a `RuleGroup` with another value. By default, `RuleGroupConstraint.ALL_OF` is used,
+        Combines a `RuleGroup` with another value. By default, `RGC.ALL_OF` is used,
           so all contained optional `Rule`s become optional by default (implicitly).
 
         The same rules apply as `Rule.combine`, except rules are generally copied into the first `RuleGroup`
@@ -331,14 +329,11 @@ class RuleGroup(list):
         res: Ok | Err | None = None
         ## Check for failed required rules -- return Err early if so
         for r in rules_failed:
-            if isinstance(r, Rule) and (RuleConstraint.REQUIRED in r._constraints):
+            if isinstance(r, Rule) and (RC.REQUIRED in r._constraints):
                 return Err(rules_failed)
         ## Check `ALL_OF`, otherwise check number based on value
-        if (
-            self._set_constraint is RuleGroupConstraint.ALL_OF
-            and len(rules_passed) == self._n_rules
-        ) or (
-            self._set_constraint is not RuleGroupConstraint.ALL_OF
+        if (self._set_constraint is RGC.ALL_OF and len(rules_passed) == self._n_rules) or (
+            self._set_constraint is not RGC.ALL_OF
             and len(rules_passed) >= self._set_constraint.value
         ):
             rules_passed = _unnest_rulegroup(rules_passed)
@@ -371,7 +366,7 @@ class RuleGroup(list):
         return self.__and__(other)
 
     def __or__(self, other: Rule | RuleGroup | Any):
-        return RuleGroup.combine(self, other, RuleGroupConstraint.ONE_OF)
+        return RuleGroup.combine(self, other, RGC.ONE_OF)
 
     def __ror__(self, other: Rule | RuleGroup | Any):
         # Expect commutative
@@ -390,7 +385,7 @@ class IsRequired(Rule):
 
     def __init__(self, at_key: str | None = None):
         # For each rule, make it required
-        super().__init__(p.not_equivalent(None), RuleConstraint.REQUIRED, at_key=at_key)
+        super().__init__(p.not_equivalent(None), RC.REQUIRED, at_key=at_key)
 
     def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
         """
@@ -399,11 +394,11 @@ class IsRequired(Rule):
         match other:
             case Rule():
                 res = deepcopy(other)
-                res._constraints.add(RuleConstraint.REQUIRED)  # type: ignore
+                res._constraints.add(RC.REQUIRED)  # type: ignore
             case _:
                 # Check callable case here (cast into a `Rule`)
                 if not isinstance(other, RuleGroup) and callable(other):
-                    res = Rule.init_specific(other, RuleConstraint.REQUIRED)
+                    res = Rule.init_specific(other, RC.REQUIRED)
                 else:
                     res = super().__and__(other)
         return res
@@ -429,17 +424,17 @@ class NotRequired(Rule):
         match other:
             case Rule():
                 res = deepcopy(other)
-                if RuleConstraint.REQUIRED in res._constraints:
-                    res._constraints.remove(RuleConstraint.REQUIRED)  # type: ignore
+                if RC.REQUIRED in res._constraints:
+                    res._constraints.remove(RC.REQUIRED)  # type: ignore
             case RuleGroup():
                 # TODO: handle the "validate if present" condition
                 #   Consider: change this `_fn` to a `None` check, and `ONE_OF` rule group
                 #   OR enforce the `OPTIONAL` constraint somewhere else
                 res = deepcopy(other)  # type: ignore
-                res._set_constraint = RuleGroupConstraint.OPTIONAL  # type: ignore
+                res._set_constraint = RGC.OPTIONAL  # type: ignore
             case _:
                 res = super().__and__(other)
-                res._set_constraint = RuleGroupConstraint.OPTIONAL  # type: ignore
+                res._set_constraint = RGC.OPTIONAL  # type: ignore
         return res
 
     def __rand__(self, other: Rule | RuleGroup | Any):
@@ -474,7 +469,7 @@ class MaxCount(Rule):
     def __init__(
         self,
         upper: int,
-        constraints: RuleConstraint | set[RuleConstraint] | None = None,
+        constraints: RC | set[RC] | None = None,
         at_key: str | None = None,
     ):
         super().__init__(p.lte(upper), constraints, at_key)
@@ -484,7 +479,7 @@ class MinCount(Rule):
     def __init__(
         self,
         lower: int,
-        constraints: RuleConstraint | set[RuleConstraint] | None = None,
+        constraints: RC | set[RC] | None = None,
         at_key: str | None = None,
     ):
         super().__init__(p.gte(lower), constraints, at_key)
@@ -494,7 +489,7 @@ class IsType(Rule):
     def __init__(
         self,
         typ: type,
-        constraints: RuleConstraint | set[RuleConstraint] | None = None,
+        constraints: RC | set[RC] | None = None,
         at_key: str | None = None,
     ):
         super().__init__(p.isinstance_of(typ), constraints, at_key)
@@ -515,7 +510,7 @@ def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
     Removes an unused outer nesting
     """
     res = rs
-    if rs._set_constraint is not RuleGroupConstraint.OPTIONAL and len(rs) == 1:
+    if rs._set_constraint is not RGC.OPTIONAL and len(rs) == 1:
         (item,) = rs
         if isinstance(item, RuleGroup):
             res = item
@@ -533,7 +528,7 @@ def _list_to_rulegroup(
       (for more specific constraints: use a nested `RuleGroup`)
     """
     # TODO: Check the key is getting applied correctly
-    res = RuleGroup(constraint=RuleGroupConstraint.ONE_OF, at_key=key_prefix)
+    res = RuleGroup(constraint=RGC.ONE_OF, at_key=key_prefix)
     for it in l:
         # TODO: does this even work / is this even needed?
         at_key = f"[*]"  # Should be applied to every item in the list

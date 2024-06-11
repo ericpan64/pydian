@@ -2,9 +2,10 @@ import traceback
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
+from ..types import ApplyFunc, ConditionalCheck
+from .enums import DROP, KEEP
 from .globs import SharedMapperState, _Global_Mapper_State_Dict
-from .lib.types import DROP, KEEP, ApplyFunc, ConditionalCheck
-from .lib.util import default_dsl, encode_stack_trace, flatten_list
+from .util import default_dsl, encode_stack_trace, flatten_list
 
 
 def get(

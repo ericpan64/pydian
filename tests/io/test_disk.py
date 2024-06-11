@@ -6,10 +6,10 @@ from polars.testing import (
     assert_frame_equal,  # Do `type: ignore` to ignore the `Err` case
 )
 
-from pydian.dio import SomeFile, WorkdirSession
+from pydian.io import SomeFile, WorkdirSession
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(CURRENT_DIR, "static")
+STATIC_DIR = os.path.join(CURRENT_DIR, "../static")
 
 
 def test_somefile(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -> None:

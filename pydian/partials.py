@@ -4,13 +4,15 @@ from itertools import islice
 from typing import Any, Type, TypeVar
 
 import pydian
-from pydian.lib.types import DROP, ApplyFunc, ConditionalCheck
+from pydian.dicts import DROP
+from pydian.types import ApplyFunc, ConditionalCheck
 
 """
 `pydian` Wrappers
 """
 
 
+# TODO: is this still needed? Prefer `do`
 def get(
     key: str,
     default: Any = None,

@@ -1,10 +1,8 @@
-from typing import Any
-
 from result import Err, Ok
 
 import pydian.partials as p
-from pydian.pipes import Pipe, Piper, PipeState
-from pydian.rules import IsType
+from pydian.pipelines.pipes import Pipe, Piper, PipeState
+from pydian.validation import IsType
 
 
 def test_pipe() -> None:
