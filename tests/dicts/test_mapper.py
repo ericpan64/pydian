@@ -154,7 +154,7 @@ def test_strict(simple_data: dict[str, Any]) -> None:
         strict_get_mapper(source)
 
 
-def test_script_deliberate_none() -> None:
+def test_strict_deliberate_none() -> None:
     source = {
         "has_None": None,
         "nested_None": {"has_None": None, "has_value": "value"},

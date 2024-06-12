@@ -9,9 +9,9 @@ Pydian takes an opinionated stance for data wrangling, preferring the following:
 
 ## Developer-friendly API
 
-
-
 Using Pydian, developers can collaboratively and incrementally write data mappings that are expressive, safe, and reusable. Similar to how libraries like React were able to streamline UI components for frontend development, Pydian aims to streamline data transformations for backend development.
+
+---
 
 ## `get` specific data, then do stuff
 
