@@ -24,7 +24,7 @@ class IsRequired(Rule):
         match other:
             case Rule():
                 res = deepcopy(other)
-                res._constraints.add(RC.REQUIRED)  # type: ignore
+                res._constraint = RC.REQUIRED
             case _:
                 # Check callable case here (cast into a `Rule`)
                 if not isinstance(other, RuleGroup) and callable(other):
@@ -54,8 +54,8 @@ class NotRequired(Rule):
         match other:
             case Rule():
                 res = deepcopy(other)
-                if RC.REQUIRED in res._constraints:
-                    res._constraints.remove(RC.REQUIRED)  # type: ignore
+                if res._constraint is RC.REQUIRED:
+                    res._constraint = None
             case RuleGroup():
                 # TODO: handle the "validate if present" condition
                 #   Consider: change this `_fn` to a `None` check, and `AT_LEAST_ONE` rule group
@@ -99,30 +99,30 @@ class MaxCount(Rule):
     def __init__(
         self,
         upper: int,
-        constraints: RC | set[RC] | None = None,
+        constraint: RC | None = None,
         at_key: str | None = None,
     ):
-        super().__init__(p.lte(upper), constraints, at_key)
+        super().__init__(p.lte(upper), constraint, at_key)
 
 
 class MinCount(Rule):
     def __init__(
         self,
         lower: int,
-        constraints: RC | set[RC] | None = None,
+        constraint: RC | None = None,
         at_key: str | None = None,
     ):
-        super().__init__(p.gte(lower), constraints, at_key)
+        super().__init__(p.gte(lower), constraint, at_key)
 
 
 class IsType(Rule):
     def __init__(
         self,
         typ: type,
-        constraints: RC | set[RC] | None = None,
+        constraint: RC | None = None,
         at_key: str | None = None,
     ):
-        super().__init__(p.isinstance_of(typ), constraints, at_key)
+        super().__init__(p.isinstance_of(typ), constraint, at_key)
 
 
 class InSet(Rule):
