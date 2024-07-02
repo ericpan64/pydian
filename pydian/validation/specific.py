@@ -61,10 +61,9 @@ class NotRequired(Rule):
                 #   Consider: change this `_fn` to a `None` check, and `AT_LEAST_ONE` rule group
                 #   OR enforce the `ALL_WHEN_KEY_PRESENT` constraint somewhere else
                 res = deepcopy(other)  # type: ignore
-                res._group_constraints = RGC.ALL_WHEN_KEY_PRESENT  # type: ignore
+                res._group_constraint = RGC.ALL_WHEN_KEY_PRESENT  # type: ignore
             case _:
                 res = super().__and__(other)
-                res._group_constraints = RGC.ALL_WHEN_KEY_PRESENT  # type: ignore
         return res
 
     def __rand__(self, other: Rule | RuleGroup | Any):

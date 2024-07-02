@@ -148,15 +148,11 @@ class RuleGroup(list):
     - One or many `Rule`s
     - Other `RuleGroup`s (ending in a terminal `RuleGroup` of just `Rule`s at some point)
 
-    When called, a `RuleGroup` evaluates all contained `Rule`/`RuleGroups` and combines the result into:
-    - Ok([rules_passed, ...])
-    - Err([rules_failed, ...])
-
-    A constraint defines whether the result is `Ok` or `Err` based on contained `Rule`/`RuleGroups`.
+    The specified `RGC` (RuleGroup Constraint) determines the logic for the result outcome.
       Additionally, individual `Rule`s may have constraints which the `RuleGroup` manages
     """
 
-    _group_constraints: set[RGC] = None  # type: ignore
+    _group_constraint: RGC | None = None  # type: ignore
     _n_rules: int = (
         0  # TODO: this is buggy... define behavior and reduce ambiguity (at some point)!
     )
@@ -168,18 +164,11 @@ class RuleGroup(list):
     def __init__(
         self,
         items: Rule | RuleGroup | Callable | Collection[Rule | RuleGroup | Callable] | None = None,
-        constraints: RGC | Collection[RGC] = RGC.ALL_RULES,
+        constraint: RGC = RGC.ALL_RULES,
         at_key: str | None = None,
     ):
         self._key = at_key
-
-        # Init and add constraints
-        self._group_constraints = set()
-        if constraints:
-            if not isinstance(constraints, Collection):
-                constraints = (constraints,)
-            for c in constraints:
-                self._group_constraints.add(c)
+        self._group_constraint = constraint
 
         # Type-check and handle items
         if items:
@@ -221,7 +210,7 @@ class RuleGroup(list):
     def combine(
         first: Rule | RuleGroup,
         other: Rule | RuleGroup | Any,
-        set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.ALL_WHEN_KEY_PRESENT),
+        constraint: RGC = RGC.ALL_WHEN_KEY_PRESENT,
     ) -> RuleGroup:
         """
         Combines a `RuleGroup` with another value. By default, all data is optional by default
@@ -236,8 +225,8 @@ class RuleGroup(list):
         7. & some primitive -> Add an equality check for the primitive
         """
         if isinstance(other, RuleGroup):
-            return RuleGroup((first, other), set_constraint)
-        res = RuleGroup(first, set_constraint)
+            return RuleGroup((first, other), constraint)
+        res = RuleGroup(first, constraint)
         match other:
             case Rule():
                 res.append(other)
@@ -286,16 +275,26 @@ class RuleGroup(list):
             if isinstance(r, Rule) and (r._constraint is RC.REQUIRED):
                 return Err(rules_failed)
         ## Check `ALL_RULES`, otherwise check number based on value
-        # TODO: update logic to handle multiple constraints
-        for c in self._group_constraints:
-            if (c is RGC.ALL_RULES and len(rules_passed) == self._n_rules) or (
-                c is not RGC.ALL_RULES and len(rules_passed) >= c.value
-            ):
-                rules_passed = _unnest_rulegroup(rules_passed)
-                res = Ok(rules_passed)
+
+        def __handle_rules(condition: bool) -> Ok[RuleGroup] | Err[RuleGroup]:
+            """
+            Helper function - retains context of `rules_passed`, `rules_failed`
+            """
+            if condition:
+                rules = _unnest_rulegroup(rules_passed)
+                return Ok(rules)
             else:
-                rules_failed = _unnest_rulegroup(rules_failed)
-                res = Err(rules_failed)
+                rules = _unnest_rulegroup(rules_failed)
+                return Err(rules)
+
+        match self._group_constraint:
+            case RGC.ALL_RULES:
+                res = __handle_rules(len(rules_passed) == self._n_rules)
+            case RGC.AT_LEAST_ONE | RGC.AT_LEAST_TWO | RGC.AT_LEAST_THREE:
+                res = __handle_rules(len(rules_passed) >= self._group_constraint.value)
+            case _:
+                # TODO: Handle more RuleGroup constraints
+                raise RuntimeError(f"Unsupported RuleGroup constraint: {self._group_constraint}")
         return res
 
     def _consume_rules_inplace(self, source: RuleGroup | Rule, target: RuleGroup) -> None:
@@ -339,7 +338,7 @@ def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
     Removes an unused outer nesting
     """
     res = rs
-    if rs._group_constraints is not RGC.ALL_WHEN_KEY_PRESENT and len(rs) == 1:
+    if rs._group_constraint is not RGC.ALL_WHEN_KEY_PRESENT and len(rs) == 1:
         (item,) = rs
         if isinstance(item, RuleGroup):
             res = item
@@ -357,7 +356,7 @@ def _list_to_rulegroup(
       (for more specific constraints: use a nested `RuleGroup`)
     """
     # TODO: Check the key is getting applied correctly
-    res = RuleGroup(constraints=RGC.AT_LEAST_ONE, at_key=key_prefix)
+    res = RuleGroup(constraint=RGC.AT_LEAST_ONE, at_key=key_prefix)
     for it in l:
         # TODO: does this even work / is this even needed?
         at_key = f"[*]"  # Should be applied to every item in the list

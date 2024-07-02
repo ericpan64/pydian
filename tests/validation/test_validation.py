@@ -44,8 +44,8 @@ def test_validation_map_gen() -> None:
                 IsType(dict),
                 RuleGroup(
                     [
-                        IsType(str, constraints=RC.REQUIRED, at_key="id"),
-                        IsType(bool, constraints=RC.REQUIRED, at_key="active"),
+                        IsType(str, constraint=RC.REQUIRED, at_key="id"),
+                        IsType(bool, constraint=RC.REQUIRED, at_key="active"),
                         IsType(str, at_key="_some_new_key"),
                     ]
                 ),
@@ -70,10 +70,10 @@ def test_validation_map_gen() -> None:
                                 IsType(dict),
                                 RuleGroup(
                                     [
-                                        IsType(str, constraints=RC.REQUIRED, at_key="id"),
+                                        IsType(str, constraint=RC.REQUIRED, at_key="id"),
                                         IsType(
                                             bool,
-                                            constraints=RC.REQUIRED,
+                                            constraint=RC.REQUIRED,
                                             at_key="active",
                                         ),
                                         IsType(str, at_key="_some_new_key"),
