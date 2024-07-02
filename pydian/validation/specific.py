@@ -19,7 +19,7 @@ class IsRequired(Rule):
 
     def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
         """
-        Returns the same type as `other`
+        Returns a `RuleGroup` with the `REQUIRED` constraint applied to the single rule
         """
         match other:
             case Rule():
@@ -49,7 +49,7 @@ class NotRequired(Rule):
     def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
         """
         For a `Rule`: remove `REQUIRED`
-        For a `RuleGroup`: set to `ONLY_IF_KEY_PRESENT` -- this means it's optional, but validate if-present
+        For a `RuleGroup`: set to `ALL_WHEN_KEY_PRESENT` -- this means it's optional, but validate if-present
         """
         match other:
             case Rule():
@@ -59,12 +59,12 @@ class NotRequired(Rule):
             case RuleGroup():
                 # TODO: handle the "validate if present" condition
                 #   Consider: change this `_fn` to a `None` check, and `AT_LEAST_ONE` rule group
-                #   OR enforce the `ONLY_IF_KEY_PRESENT` constraint somewhere else
+                #   OR enforce the `ALL_WHEN_KEY_PRESENT` constraint somewhere else
                 res = deepcopy(other)  # type: ignore
-                res._group_constraints = RGC.ONLY_IF_KEY_PRESENT  # type: ignore
+                res._group_constraints = RGC.ALL_WHEN_KEY_PRESENT  # type: ignore
             case _:
                 res = super().__and__(other)
-                res._group_constraints = RGC.ONLY_IF_KEY_PRESENT  # type: ignore
+                res._group_constraints = RGC.ALL_WHEN_KEY_PRESENT  # type: ignore
         return res
 
     def __rand__(self, other: Rule | RuleGroup | Any):
