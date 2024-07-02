@@ -35,9 +35,9 @@ class RGC(Enum):
     RGC takes precedent over RC (i.e. a `RGC` setting will override a `RC` setting when applicable)
     """
 
-    ALL_REQUIRED_RULES = -2  # NOTE: This implicitly
-    ALL_RULES = -1  # NOTE: This implicitly makes everything _required_
-    ONLY_IF_KEY_PRESENT = 0  # NOTE: Optional values should be validated _if present_
+    ALL_REQUIRED_RULES = -2  # NOTE: This makes the default _optional_
+    ALL_RULES = -1  # NOTE: This makes the default _required_
+    ALL_WHEN_KEY_PRESENT = 0  # NOTE: This makes the default _required if data is present_
     AT_LEAST_ONE = 1
     AT_LEAST_TWO = 2
     AT_LEAST_THREE = 3
@@ -227,7 +227,7 @@ class RuleGroup(list):
     def combine(
         first: Rule | RuleGroup,
         other: Rule | RuleGroup | Any,
-        set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.ONLY_IF_KEY_PRESENT),
+        set_constraint: RGC | Collection[RGC] = (RGC.ALL_REQUIRED_RULES, RGC.ALL_WHEN_KEY_PRESENT),
     ) -> RuleGroup:
         """
         Combines a `RuleGroup` with another value. By default, all data is optional by default
@@ -319,6 +319,9 @@ class RuleGroup(list):
     def __hash__(self):
         return hash(tuple(self))
 
+    def __repr__(self) -> str:
+        return f"(RuleGroup) {self}"
+
     def __and__(self, other: Rule | RuleGroup | Any):
         return RuleGroup.combine(self, other)
 
@@ -342,7 +345,7 @@ def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
     Removes an unused outer nesting
     """
     res = rs
-    if rs._group_constraints is not RGC.ONLY_IF_KEY_PRESENT and len(rs) == 1:
+    if rs._group_constraints is not RGC.ALL_WHEN_KEY_PRESENT and len(rs) == 1:
         (item,) = rs
         if isinstance(item, RuleGroup):
             res = item
