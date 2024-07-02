@@ -58,25 +58,19 @@ class Rule:
         raise ValueError("Rule was not defined!")
 
     _fn: Callable = lambda _: Rule._raise_undefined_rule_err()
-    _constraints: set[RC] = None  # type: ignore
+    _constraint: RC | None = None
     _key: str | None = None
 
     def __init__(
         self,
         fn: Callable,
-        constraints: RC | Collection[RC] | None = None,
+        constraint: RC | None = None,
         at_key: str | None = None,
     ):
         self._fn = fn
         self._key = at_key  # Managed by `RuleGroup`
-        self._constraints = set()
-        match constraints:
-            case RC():
-                self._constraints.add(constraints)
-            case Collection():
-                for c in constraints:
-                    if isinstance(c, RC):
-                        self._constraints.add(c)
+        if constraint:
+            self._constraint = constraint
 
     def __call__(self, source: Any, *args) -> Ok[Any] | Err[str]:
         """
@@ -106,7 +100,7 @@ class Rule:
             return f"(Rule) {self._fn}"
 
     def __hash__(self):
-        return hash((self._fn, frozenset(self._constraints), self._key))
+        return hash((self._fn, self._constraint, self._key))
 
     def __eq__(self, other: Rule | Any):
         if isinstance(other, Rule):
@@ -289,7 +283,7 @@ class RuleGroup(list):
         res: Ok | Err = Err(rules_failed)
         ## Check for failed required rules -- return Err early if so
         for r in rules_failed:
-            if isinstance(r, Rule) and (RC.REQUIRED in r._constraints):
+            if isinstance(r, Rule) and (r._constraint is RC.REQUIRED):
                 return Err(rules_failed)
         ## Check `ALL_RULES`, otherwise check number based on value
         # TODO: update logic to handle multiple constraints
