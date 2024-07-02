@@ -35,9 +35,9 @@ def test_rulegroup() -> None:
 
     all_rules = [is_str, is_nonempty, starts_with_upper]
     rs_all = RuleGroup(all_rules)
-    rs_one = RuleGroup(all_rules, constraints=RGC.AT_LEAST_ONE)
-    rs_two = RuleGroup(all_rules, constraints=RGC.AT_LEAST_TWO)
-    rs_three = RuleGroup(all_rules, constraints=RGC.AT_LEAST_THREE)
+    rs_one = RuleGroup(all_rules, constraint=RGC.AT_LEAST_ONE)
+    rs_two = RuleGroup(all_rules, constraint=RGC.AT_LEAST_TWO)
+    rs_three = RuleGroup(all_rules, constraint=RGC.AT_LEAST_THREE)
 
     PASS_ALL_STR = "Abc"
     PASS_ONE_STR = ""
