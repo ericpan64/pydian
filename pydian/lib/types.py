@@ -55,12 +55,12 @@ class KEEP:
 
 
 # # TODO - do we need these?
-# class Ok_Truthy(Ok):
+# class Ok_T(Ok):
 
 #     def __bool__(self) -> bool:
 #         return True
 
-# class Err_Falsy(Err):
+# class Err_F(Err):
 
 #     def __bool__(self) -> bool:
 #         return False

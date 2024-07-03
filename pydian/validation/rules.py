@@ -35,9 +35,9 @@ class RGC(Enum):
     RGC takes precedent over RC (i.e. a `RGC` setting will override a `RC` setting when applicable)
     """
 
-    ALL_REQUIRED_RULES = -2  # NOTE: This makes the default _optional_
-    ALL_RULES = -1  # NOTE: This makes the default _required_
-    ALL_WHEN_KEY_PRESENT = 0  # NOTE: This makes the default _required if data is present_
+    ALL_REQUIRED_RULES = -2  # NOTE: This makes rules default _optional_
+    ALL_RULES = -1  # NOTE: This makes rules default _required_
+    ALL_WHEN_DATA_PRESENT = 0  # NOTE: This makes rules default _required when data is present_
     AT_LEAST_ONE = 1
     AT_LEAST_TWO = 2
     AT_LEAST_THREE = 3
@@ -68,16 +68,13 @@ class Rule:
         at_key: str | None = None,
     ):
         self._fn = fn
-        self._key = at_key  # Managed by `RuleGroup`
+        self._key = at_key
         if constraint:
             self._constraint = constraint
 
     def __call__(self, source: Any, *args) -> Ok[Any] | Err[str]:
         """
-        Call specified rule
-
-        NOTE: the key nesting needs to be enforced at the `RuleGroup` level,
-            since an individual Rule doesn't have enough information available to it
+        Call specified rule and wraps as a `Result` type
         """
         # NOTE: Only apply key logic for `dict`s. Something something, design choice!
         if isinstance(source, dict) and self._key:
@@ -87,8 +84,8 @@ class Rule:
             if res:
                 return Ok(res)
         except Exception as e:
-            return Err(f"Rule {self} failed with exception: {e}")
-        return Err(f"Rule {self} failed, got falsy value: {res}")
+            return Err(f"{self} failed with exception: {e}")
+        return Err(f"{self} failed, got falsy value: {res}")
 
     def __repr__(self) -> str:
         # NOTE: can only grab source for saved files, not in repl
@@ -156,7 +153,7 @@ class RuleGroup(list):
     _n_rules: int = (
         0  # TODO: this is buggy... define behavior and reduce ambiguity (at some point)!
     )
-    # NOTE: _key is needed here to save nesting information
+    # NOTE: _key is needed here to save nesting information from operations like `&` with a `dict`
     #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
     #   rather we should infer that during parsing
     _key: str | None = None
@@ -210,7 +207,7 @@ class RuleGroup(list):
     def combine(
         first: Rule | RuleGroup,
         other: Rule | RuleGroup | Any,
-        constraint: RGC = RGC.ALL_WHEN_KEY_PRESENT,
+        constraint: RGC = RGC.ALL_WHEN_DATA_PRESENT,
     ) -> RuleGroup:
         """
         Combines a `RuleGroup` with another value. By default, all data is optional by default
@@ -274,8 +271,8 @@ class RuleGroup(list):
         for r in rules_failed:
             if isinstance(r, Rule) and (r._constraint is RC.REQUIRED):
                 return Err(rules_failed)
-        ## Check `ALL_RULES`, otherwise check number based on value
 
+        ## Check `ALL_RULES`, otherwise check number based on value
         def __handle_rules(condition: bool) -> Ok[RuleGroup] | Err[RuleGroup]:
             """
             Helper function - retains context of `rules_passed`, `rules_failed`
@@ -292,6 +289,9 @@ class RuleGroup(list):
                 res = __handle_rules(len(rules_passed) == self._n_rules)
             case RGC.AT_LEAST_ONE | RGC.AT_LEAST_TWO | RGC.AT_LEAST_THREE:
                 res = __handle_rules(len(rules_passed) >= self._group_constraint.value)
+            case RGC.ALL_REQUIRED_RULES:
+                # Since we have above check for required rules, we know all rules have passed here
+                res = __handle_rules(True)
             case _:
                 # TODO: Handle more RuleGroup constraints
                 raise RuntimeError(f"Unsupported RuleGroup constraint: {self._group_constraint}")
@@ -313,7 +313,7 @@ class RuleGroup(list):
         return hash(tuple(self))
 
     def __repr__(self) -> str:
-        return f"(RuleGroup) {self}"
+        return f"(RuleGroup) {[r for r in self]}"
 
     def __and__(self, other: Rule | RuleGroup | Any):
         return RuleGroup.combine(self, other)
@@ -338,7 +338,7 @@ def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
     Removes an unused outer nesting
     """
     res = rs
-    if rs._group_constraint is not RGC.ALL_WHEN_KEY_PRESENT and len(rs) == 1:
+    if rs._group_constraint is not RGC.ALL_WHEN_DATA_PRESENT and len(rs) == 1:
         (item,) = rs
         if isinstance(item, RuleGroup):
             res = item

@@ -49,7 +49,7 @@ class NotRequired(Rule):
     def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
         """
         For a `Rule`: remove `REQUIRED`
-        For a `RuleGroup`: set to `ALL_WHEN_KEY_PRESENT` -- this means it's optional, but validate if-present
+        For a `RuleGroup`: set to `ALL_WHEN_DATA_PRESENT` -- this means it's optional, but validate if-present
         """
         match other:
             case Rule():
@@ -59,9 +59,9 @@ class NotRequired(Rule):
             case RuleGroup():
                 # TODO: handle the "validate if present" condition
                 #   Consider: change this `_fn` to a `None` check, and `AT_LEAST_ONE` rule group
-                #   OR enforce the `ALL_WHEN_KEY_PRESENT` constraint somewhere else
+                #   OR enforce the `ALL_WHEN_DATA_PRESENT` constraint somewhere else
                 res = deepcopy(other)  # type: ignore
-                res._group_constraint = RGC.ALL_WHEN_KEY_PRESENT  # type: ignore
+                res._group_constraint = RGC.ALL_WHEN_DATA_PRESENT  # type: ignore
             case _:
                 res = super().__and__(other)
         return res
