@@ -4,7 +4,7 @@ from typing import Any
 from result import Err, Ok
 
 import pydian.partials as p
-from pydian.validation import RGC, Rule, RuleGroup
+from pydian.validation import RC, RGC, Rule, RuleGroup
 from pydian.validation.specific import IsRequired, IsType
 
 
@@ -65,6 +65,86 @@ def test_rulegroup() -> None:
     assert rs_three(PASS_ONE_STR) == Err([is_nonempty, starts_with_upper])
     assert rs_three(PASS_TWO_STR) == Err([starts_with_upper])
     assert rs_three(PASS_NONE) == Err(all_rules)
+
+
+# NEXT STEP: Add tests for `RuleGroup` constraints
+def test_rule_at_key() -> None:
+    data = {"first": "abc", "second": "Def"}
+    is_str = Rule(lambda x: isinstance(x, str), at_key="first")
+    is_nonempty = Rule(lambda x: len(x) > 0, at_key="first")
+    starts_with_upper = Rule(lambda x: x[0].isupper(), at_key="second")
+
+    rg = RuleGroup([is_str, is_nonempty, starts_with_upper])
+    assert rg(data) == Ok([is_str, is_nonempty, starts_with_upper])
+    assert rg({"first": "abc"}) == Err([starts_with_upper])
+    assert rg({"second": "Def"}) == Err([is_str, is_nonempty])
+    assert rg({}) == Err([is_str, is_nonempty, starts_with_upper])
+
+
+def test_rulegroup_at_key() -> None:
+    data = {"some_layer": {"first": "abc", "second": "Def"}}
+    is_str = Rule(lambda x: isinstance(x, str), at_key="first")
+    is_nonempty = Rule(lambda x: len(x) > 0, at_key="first")
+    starts_with_upper = Rule(lambda x: x[0].isupper(), at_key="second")
+
+    rg = RuleGroup([is_str, is_nonempty, starts_with_upper], at_key="some_layer")
+    assert rg(data) == Ok([is_str, is_nonempty, starts_with_upper])
+    assert rg({"some_layer": {"first": "abc"}}) == Err([starts_with_upper])
+    assert rg({"some_layer": {"second": "Def"}}) == Err([is_str, is_nonempty])
+    assert rg({"first": "abc", "second": "Def"}) == Err([is_str, is_nonempty, starts_with_upper])
+
+
+def test_rulegroup_constraint() -> None:
+    # Test `RuleGroup` constraints (last rule is changed to required to do this)
+    is_str = Rule(lambda x: isinstance(x, str))
+    starts_with_upper_required = Rule(lambda x: x[0].isupper(), RC.REQUIRED)  # Marked as REQUIRED
+    contains_digit = Rule(lambda x: any(c.isdigit() for c in x) if x else False)
+
+    all_rules = [is_str, contains_digit, starts_with_upper_required]
+
+    PASS_ALL_STR = "Abc123"
+    PASS_ONE_STR = ""
+    PASS_TWO_STR = "Abc"  # Passes the required rule
+    PASS_NONE = False
+
+    rg_all = RuleGroup(all_rules, RGC.ALL_RULES)
+    assert rg_all(PASS_ALL_STR) == Ok(all_rules)
+    assert rg_all(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
+    assert rg_all(PASS_TWO_STR) == Err([contains_digit])
+    assert rg_all(PASS_NONE) == Err(all_rules)
+
+    rg_all_required = RuleGroup(all_rules, RGC.ALL_REQUIRED_RULES)
+    assert rg_all_required(PASS_ALL_STR) == Ok(all_rules)
+    assert rg_all_required(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
+    assert rg_all_required(PASS_TWO_STR) == Ok([is_str, starts_with_upper_required])
+    assert rg_all_required(PASS_NONE) == Err(all_rules)
+
+    # # NOTE: Required rules will cause the `RuleGroup` to fail if they don't pass
+    rg_at_least_one = RuleGroup(all_rules, RGC.AT_LEAST_ONE)
+    assert rg_at_least_one(PASS_ALL_STR) == Ok(all_rules)
+    assert rg_at_least_one(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
+    assert rg_at_least_one(PASS_TWO_STR) == Ok([is_str, starts_with_upper_required])
+    assert rg_at_least_one(PASS_NONE) == Err(all_rules)
+
+    rg_at_least_two = RuleGroup(all_rules, RGC.AT_LEAST_TWO)
+    assert rg_at_least_two(PASS_ALL_STR) == Ok(all_rules)
+    assert rg_at_least_two(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
+    assert rg_at_least_two(PASS_TWO_STR) == Ok([is_str, starts_with_upper_required])
+    assert rg_at_least_two(PASS_NONE) == Err(all_rules)
+
+    rg_at_least_three = RuleGroup(all_rules, RGC.AT_LEAST_THREE)
+    assert rg_at_least_three(PASS_ALL_STR) == Ok(all_rules)
+    assert rg_at_least_three(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
+    assert rg_at_least_three(PASS_TWO_STR) == Err([contains_digit])
+    assert rg_at_least_three(PASS_NONE) == Err(all_rules)
+
+    # Failing the required rule should always result in a fail
+    PASS_TWO_STR_FAIL_REQ = "abc123"  # Fails the required rule
+    assert rg_all(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
+    assert rg_all_required(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
+    assert rg_at_least_one(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
+    assert rg_at_least_two(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
+    assert rg_at_least_three(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
 
 
 def test_nested_rulegroup() -> None:
