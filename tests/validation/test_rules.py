@@ -147,6 +147,30 @@ def test_rulegroup_constraint() -> None:
     assert rg_at_least_three(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
 
 
+# NEXT-STEP: Write this
+def test_rulegroup_constraint_when_data_present() -> None:
+    data = {"first": "abc", "second": "Def"}
+    is_str = Rule(lambda x: isinstance(x, str), at_key="first")
+    starts_with_upper = Rule(lambda x: x[0].isupper(), at_key="second")
+
+    all_rules = [is_str, starts_with_upper]
+
+    rg_when_present = RuleGroup(all_rules, RGC.ALL_WHEN_DATA_PRESENT)
+    assert rg_when_present(data) == Ok(all_rules)
+    assert rg_when_present({"first": "abc"}) == Ok([is_str])
+    assert rg_when_present({"second": "Def"}) == Ok([starts_with_upper])
+    assert rg_when_present({}) == Ok([])
+
+    rg_with_missing_key = RuleGroup(all_rules, RGC.ALL_WHEN_DATA_PRESENT, at_key="third")
+    assert rg_with_missing_key(data) == Ok([])
+    assert rg_with_missing_key({"first": "abc"}) == Ok([])
+    assert rg_with_missing_key({"second": "Def"}) == Ok([])
+    # TODO: This case seems weird -- the first key hits, and then the second two miss due to types
+    #       ... right now it'll pass since the data get "misses". Though issue with type check. Hm.
+    assert rg_with_missing_key({"third": "Ghi"}) == Ok([is_str, starts_with_upper])
+    assert rg_with_missing_key({}) == Ok([])
+
+
 def test_nested_rulegroup() -> None:
     is_str = Rule(lambda x: isinstance(x, str))
     starts_with_upper = Rule(lambda x: x[0].isupper())
