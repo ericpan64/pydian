@@ -292,8 +292,15 @@ class RuleGroup(list):
             case RGC.ALL_REQUIRED_RULES:
                 # Since we have above check for required rules, we know all rules have passed here
                 res = __handle_rules(True)
+            case RGC.ALL_WHEN_DATA_PRESENT:
+                # For each failed rule, check if data was present. If so, return `Err`
+                should_ok = True
+                for r in rules_failed:
+                    if isinstance(r, Rule) and (r._key is not None) and get(source, r._key):
+                        should_ok = False
+                        break
+                res = __handle_rules(should_ok)
             case _:
-                # TODO: Handle more RuleGroup constraints
                 raise RuntimeError(f"Unsupported RuleGroup constraint: {self._group_constraint}")
         return res
 
