@@ -77,8 +77,13 @@ class Rule:
         Call specified rule and wraps as a `Result` type
         """
         # NOTE: Only apply key logic for `dict`s. Something something, design choice!
+        # Also: if passed an `Ok`, unwrap it by default
         if isinstance(source, dict) and self._key:
             source = get(source, self._key)
+        elif isinstance(source, Ok):
+            source = source.unwrap()
+        elif isinstance(source, Err):
+            raise ValueError(f"Rule called with Err: {source}")
         try:
             res = self._fn(source, *args)
             if res:
@@ -149,7 +154,7 @@ class RuleGroup(list):
       Additionally, individual `Rule`s may have constraints which the `RuleGroup` manages
     """
 
-    _group_constraint: RGC | None = None  # type: ignore
+    _constraint: RGC | None = None  # type: ignore
     _n_rules: int = (
         0  # TODO: this is buggy... define behavior and reduce ambiguity (at some point)!
     )
@@ -165,7 +170,7 @@ class RuleGroup(list):
         at_key: str | None = None,
     ):
         self._key = at_key
-        self._group_constraint = constraint
+        self._constraint = constraint
 
         # Type-check and handle items
         if items:
@@ -284,11 +289,11 @@ class RuleGroup(list):
                 rules = _unnest_rulegroup(rules_failed)
                 return Err(rules)
 
-        match self._group_constraint:
+        match self._constraint:
             case RGC.ALL_RULES:
                 res = __handle_rules(len(rules_passed) == self._n_rules)
             case RGC.AT_LEAST_ONE | RGC.AT_LEAST_TWO | RGC.AT_LEAST_THREE:
-                res = __handle_rules(len(rules_passed) >= self._group_constraint.value)
+                res = __handle_rules(len(rules_passed) >= self._constraint.value)
             case RGC.ALL_REQUIRED_RULES:
                 # Since we have above check for required rules, we know all rules have passed here
                 res = __handle_rules(True)
@@ -301,7 +306,7 @@ class RuleGroup(list):
                         break
                 res = __handle_rules(should_ok)
             case _:
-                raise RuntimeError(f"Unsupported RuleGroup constraint: {self._group_constraint}")
+                raise RuntimeError(f"Unsupported RuleGroup constraint: {self._constraint}")
         return res
 
     def _consume_rules_inplace(self, source: RuleGroup | Rule, target: RuleGroup) -> None:
@@ -345,7 +350,7 @@ def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
     Removes an unused outer nesting
     """
     res = rs
-    if rs._group_constraint is not RGC.ALL_WHEN_DATA_PRESENT and len(rs) == 1:
+    if rs._constraint is not RGC.ALL_WHEN_DATA_PRESENT and len(rs) == 1:
         (item,) = rs
         if isinstance(item, RuleGroup):
             res = item
