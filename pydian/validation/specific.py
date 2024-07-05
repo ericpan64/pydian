@@ -39,7 +39,10 @@ class IsRequired(Rule):
 
 class NotRequired(Rule):
     """
-    When combined with another rule, removes the Required constraint
+    When combined with another rule, removes the Required constraint.
+
+    Adds a dummy rule that doesn't do anything explicitly, though might loosen RuleGroup constraints
+      (e.g. `AT_LEAST_ONE` will always pass since we're adding one rule that always passes)
     """
 
     def __init__(self, at_key: str | None = None):
@@ -57,11 +60,12 @@ class NotRequired(Rule):
                 if res._constraint is RC.REQUIRED:
                     res._constraint = None
             case RuleGroup():
-                # TODO: handle the "validate if present" condition
-                #   Consider: change this `_fn` to a `None` check, and `AT_LEAST_ONE` rule group
-                #   OR enforce the `ALL_WHEN_DATA_PRESENT` constraint somewhere else
+                # Loops through and removes the `IsRequired` rule
                 res = deepcopy(other)  # type: ignore
-                res._group_constraint = RGC.ALL_WHEN_DATA_PRESENT  # type: ignore
+                try:
+                    res.remove(IsRequired())  # type: ignore
+                except ValueError:
+                    pass
             case _:
                 res = super().__and__(other)
         return res
@@ -101,7 +105,7 @@ class MaxCount(Rule):
         constraint: RC | None = None,
         at_key: str | None = None,
     ):
-        super().__init__(p.lte(upper), constraint, at_key)
+        super().__init__(p.pipe(len, p.lte(upper)), constraint, at_key)
 
 
 class MinCount(Rule):
@@ -111,7 +115,7 @@ class MinCount(Rule):
         constraint: RC | None = None,
         at_key: str | None = None,
     ):
-        super().__init__(p.gte(lower), constraint, at_key)
+        super().__init__(p.pipe(len, p.gte(lower)), constraint, at_key)
 
 
 class IsType(Rule):
