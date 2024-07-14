@@ -67,7 +67,6 @@ def test_rulegroup() -> None:
     assert rs_three(PASS_NONE) == Err(all_rules)
 
 
-# NEXT STEP: Add tests for `RuleGroup` constraints
 def test_rule_at_key() -> None:
     data = {"first": "abc", "second": "Def"}
     is_str = Rule(lambda x: isinstance(x, str), at_key="first")
@@ -184,13 +183,12 @@ def test_nested_rulegroup() -> None:
     rs_notlist_upper = RuleGroup([is_not_list, starts_with_upper])
 
     # NOTE: returns groups of `RuleGroup`s within an outer `RuleGroup`.
-    # TODO: decide on if this should keep RuleGroup nesting.
-    #   Maybe add a fn to remove RuleGroup nesting separately? I.e. why lose info preemtively
+    # NOTE: failed rules are saved discretely (i.e. taken out of their original RuleGroup, if any)
     nested_rs = RuleGroup([rs_str_nonempty, rs_notlist_upper])
     res_rs_all_rules = RuleGroup([is_str, is_nonempty, is_not_list, starts_with_upper])
 
     assert nested_rs(PASS_ALL_STR) == Ok(res_rs_all_rules)
-    assert nested_rs(PASS_ONE_STR) == Err(rs_notlist_upper)
+    assert nested_rs(PASS_ONE_STR) == Err(RuleGroup(starts_with_upper))
     assert nested_rs(PASS_NONE) == Err(res_rs_all_rules)
 
 

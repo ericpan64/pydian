@@ -16,22 +16,22 @@ def validate(
     """
 
     # Try applying each rule at the given key
-    failed_rules = []
-    for k, r_rs in validation_map.items():
+    failed_r_rg = []
+    for k, r_rg in validation_map.items():
         # Add key information when available
-        if r_rs._key:
-            k = f"{k}.{r_rs._key}"
+        if r_rg._key:
+            k = f"{k}.{r_rg._key}"
         # Run rules on source[k]
         # NOTE: need to handle nested keys somehow
         #   A `RuleSet` key applies to all child items
         #   A `Rule` key is terminal, and applies to current object
         curr_level = get(source, k)
-        res = r_rs(curr_level)  # Expect Rule / RuleSet to handle key after
+        res = r_rg(curr_level)
         if isinstance(res, Err):
-            failed_rules.append(r_rs)
+            failed_r_rg.append(r_rg)
 
-    if failed_rules:
-        return Err(RuleGroup(failed_rules))
+    if failed_r_rg:
+        return Err(RuleGroup(failed_r_rg))
 
     return Ok(source)
 

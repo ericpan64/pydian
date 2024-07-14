@@ -29,10 +29,15 @@ def test_is_required() -> None:
     is_str_not_required = NotRequired() & is_str_required
     assert is_str_not_required._constraint is None
 
+    # Works for a `RuleGroup`
     is_nonempty_str = RuleGroup([p.isinstance_of(str), p.not_equal("")])
     combined_rg: RuleGroup = IsRequired() & is_nonempty_str  # type: ignore
     assert combined_rg[0] == IsRequired()
     assert combined_rg[1] == is_nonempty_str
+
+    # Works on arbitrary callable
+    is_str_req = IsRequired() & str
+    assert isinstance(is_str_req, Rule) and is_str_req._constraint is RC.REQUIRED
 
 
 def test_is_type() -> None:
