@@ -1,6 +1,7 @@
 import gc
 import json
 import os
+import pickle
 import re
 from typing import Any
 
@@ -23,7 +24,7 @@ class SomeFile:
         pass
 
     @staticmethod
-    def open(abs_fp: str) -> dict[str, Any] | list[dict[str, Any]] | pl.DataFrame:
+    def open(abs_fp: str) -> dict[str, Any] | list[dict[str, Any]] | pl.DataFrame | str | Any:
         """
         Opens a file given the absolute filepath
         """
@@ -50,6 +51,9 @@ class SomeFile:
         elif abs_fp.endswith(".tsv"):
             data = pl.read_csv(abs_fp, null_values="", separator="\t")
             data = _handle_csv_import_cases(data)
+        elif abs_fp.endswith(".txt"):
+            with open(abs_fp, "r") as f:
+                data = f.read()
         else:
             raise ValueError(f"Unsupported filename (based on file type): {abs_fp}")
 
@@ -78,7 +82,9 @@ class WorkdirSession:
         # Drop everything in the block
         gc.collect()
 
-    def open(self, filename: str) -> dict[str, Any] | list[dict[str, Any]] | pl.DataFrame:
+    def open(
+        self, filename: str
+    ) -> dict[str, Any] | list[dict[str, Any]] | pl.DataFrame | str | Any:
         fp = os.path.join(self.cd, filename)
         data = SomeFile.open(fp)
         if self._curr_open_files is not None:

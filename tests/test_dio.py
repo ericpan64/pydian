@@ -30,6 +30,9 @@ def test_somefile(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -
 def test_workdir_session(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -> None:
     # Regular session
     with WorkdirSession(STATIC_DIR) as wd:
+        example_str = wd.open("example_str.txt")
+        assert isinstance(example_str, str)
+
         simple_json_file: dict = wd.open("simple_data.json")
         assert simple_data == simple_json_file
 
