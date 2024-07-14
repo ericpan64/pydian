@@ -17,7 +17,7 @@ class SomeFile:
 
     def __enter__(self):
         self.data = SomeFile.open(self.filepath)
-        return self.data
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # No special cleanup needed
@@ -41,23 +41,23 @@ class SomeFile:
 
         if abs_fp.endswith(".json"):
             with open(abs_fp, "r") as f:
-                data = json.load(f)
+                res = json.load(f)
         elif abs_fp.endswith(".ndjson"):
             with open(abs_fp, "r") as f:
-                data = [json.loads(line) for line in f]
+                res = [json.loads(line) for line in f]
         elif abs_fp.endswith(".csv"):
-            data = pl.read_csv(abs_fp, null_values="")
-            data = _handle_csv_import_cases(data)
+            res = pl.read_csv(abs_fp, null_values="")
+            res = _handle_csv_import_cases(res)
         elif abs_fp.endswith(".tsv"):
-            data = pl.read_csv(abs_fp, null_values="", separator="\t")
-            data = _handle_csv_import_cases(data)
+            res = pl.read_csv(abs_fp, null_values="", separator="\t")
+            res = _handle_csv_import_cases(res)
         elif abs_fp.endswith(".txt"):
             with open(abs_fp, "r") as f:
-                data = f.read()
+                res = f.read()
         else:
             raise ValueError(f"Unsupported filename (based on file type): {abs_fp}")
 
-        return data
+        return res
 
 
 class WorkdirSession:
