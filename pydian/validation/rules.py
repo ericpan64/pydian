@@ -97,9 +97,12 @@ class Rule:
         #  So the function needs to be saved on a file
         #  See: https://stackoverflow.com/a/335159
         try:
-            return f"(Rule) {inspect.getsource(self._fn).strip()}`"
+            return f"<Rule> {inspect.getsource(self._fn).strip()}, ({self._fn.__closure__[0].cell_contents})"  # type: ignore
         except:
-            return f"(Rule) {self._fn}"
+            try:
+                return f"<Rule> {inspect.getsource(self._fn).strip()}"
+            except:
+                return f"<Rule> {self._fn}"
 
     def __hash__(self):
         return hash((self._fn, self._constraint, self._key))
@@ -124,7 +127,7 @@ class Rule:
         from .specific import IsType  # Import here to avoid circular import
 
         if isinstance(v, type):
-            res = IsType(v, at_key)  # type: ignore
+            res = IsType(v, constraint, at_key)  # type: ignore
         else:
             res = Rule(v, constraint, at_key)  # type: ignore
         return res
@@ -155,9 +158,7 @@ class RuleGroup(list):
     """
 
     _constraint: RGC | None = None  # type: ignore
-    _n_rules: int = (
-        0  # TODO: this is buggy... define behavior and reduce ambiguity (at some point)!
-    )
+    _n_rules: int = 0
     # NOTE: _key is needed here to save nesting information from operations like `&` with a `dict`
     #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
     #   rather we should infer that during parsing
@@ -203,7 +204,7 @@ class RuleGroup(list):
             else:
                 raise ValueError(f"All items in a `RuleGroup` must be `Rule`s, got: {type(item)}")
         if isinstance(item, RuleGroup):
-            self._n_rules += len(item)
+            self._n_rules += item._n_rules
         else:
             self._n_rules += 1
         super().append(item)
@@ -250,61 +251,63 @@ class RuleGroup(list):
         return res
 
     def __call__(self, source: Any, *args) -> Ok[RuleGroup] | Err[RuleGroup]:
-        rules_passed, rules_failed = RuleGroup(), RuleGroup()
+        # For passed rules/rulegroups, the structure is maintained
+        # For failed rules, they're stored discretely (TODO: make this make sense)
+        rg_passed, rg_failed = RuleGroup(), RuleGroup()
 
         # Apply key unnesting logic
         # NOTE: only when source is a dict. Design choice!
         if isinstance(source, dict) and self._key:
             source = get(source, self._key)
 
+        # NEXT STEP
+        # TODO: Issue is HERE: the RuleGroup case isn't being handled
+        #   `rg_failed` make it only contain rules
         # Chain calls for each contained rule
-        for rule_or_rg in self:
+        for r_rg in self:
             try:
                 # NOTE: Both `Ok`, `Err` are truthy as-is, want `Err` to fail rule
                 #   `<Err>.unwrap()` throws exception
-                if rule_or_rg(source, *args).unwrap():
-                    self._consume_rules_inplace(rule_or_rg, rules_passed)
+                r_rg_res = r_rg(source, *args)
+                if isinstance(r_rg_res, Ok):
+                    self._consume_rules_inplace(r_rg, rg_passed)
+                elif isinstance(r_rg_res, Err):
+                    # Take the failed rules instead of the entire `RuleGroup`
+                    self._consume_rules_inplace(r_rg_res.err_value, rg_failed)
                 else:
-                    self._consume_rules_inplace(rule_or_rg, rules_failed)
+                    raise RuntimeError(f"Unexpected result type: {type(r_rg_res)}")
             except:
                 # TODO: include other info about exception?
-                self._consume_rules_inplace(rule_or_rg, rules_failed)
+                self._consume_rules_inplace(r_rg, rg_failed)
 
         # Check result and return
-        res: Ok | Err = Err(rules_failed)
+        res: Ok[RuleGroup] | Err[RuleGroup]
         ## Check for failed required rules -- return Err early if so
-        for r in rules_failed:
+        # TODO: want a RuleGroup with _just_ the failed rule, as well as the key information.
+        #       Right now, it's returning the entire `RuleGroup` that the failed rule is nested in
+        #       Fixing this requires thinking about the recursion back-up
+        for r in rg_failed:
             if isinstance(r, Rule) and (r._constraint is RC.REQUIRED):
-                return Err(rules_failed)
-
-        ## Check `ALL_RULES`, otherwise check number based on value
-        def __handle_rules(condition: bool) -> Ok[RuleGroup] | Err[RuleGroup]:
-            """
-            Helper function - retains context of `rules_passed`, `rules_failed`
-            """
-            if condition:
-                rules = _unnest_rulegroup(rules_passed)
-                return Ok(rules)
-            else:
-                rules = _unnest_rulegroup(rules_failed)
-                return Err(rules)
-
+                return Err(RuleGroup(rg_failed))
+        ## Unnest top-most level
+        rg_passed, rg_failed = _unnest_rulegroup(rg_passed), _unnest_rulegroup(rg_failed)
+        ## Do matching
         match self._constraint:
             case RGC.ALL_RULES:
-                res = __handle_rules(len(rules_passed) == self._n_rules)
+                res = Ok(rg_passed) if len(rg_passed) == self._n_rules else Err(rg_failed)
             case RGC.AT_LEAST_ONE | RGC.AT_LEAST_TWO | RGC.AT_LEAST_THREE:
-                res = __handle_rules(len(rules_passed) >= self._constraint.value)
+                res = Ok(rg_passed) if len(rg_passed) >= self._constraint.value else Err(rg_failed)
             case RGC.ALL_REQUIRED_RULES:
                 # Since we have above check for required rules, we know all rules have passed here
-                res = __handle_rules(True)
+                res = Ok(rg_passed)
             case RGC.ALL_WHEN_DATA_PRESENT:
                 # For each failed rule, check if data was present. If so, return `Err`
-                should_ok = True
-                for r in rules_failed:
+                is_fine = True
+                for r in rg_failed:
                     if isinstance(r, Rule) and (r._key is not None) and get(source, r._key):
-                        should_ok = False
+                        is_fine = False
                         break
-                res = __handle_rules(should_ok)
+                res = Ok(rg_passed) if is_fine else Err(rg_failed)
             case _:
                 raise RuntimeError(f"Unsupported RuleGroup constraint: {self._constraint}")
         return res
@@ -325,7 +328,7 @@ class RuleGroup(list):
         return hash(tuple(self))
 
     def __repr__(self) -> str:
-        return f"(RuleGroup) {[r for r in self]}"
+        return f"<RuleGroup> {[r for r in self]}"
 
     def __and__(self, other: Rule | RuleGroup | Any):
         return RuleGroup.combine(self, other)
@@ -350,7 +353,7 @@ def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
     Removes an unused outer nesting
     """
     res = rs
-    if rs._constraint is not RGC.ALL_WHEN_DATA_PRESENT and len(rs) == 1:
+    if len(rs) == 1:
         (item,) = rs
         if isinstance(item, RuleGroup):
             res = item

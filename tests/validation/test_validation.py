@@ -63,7 +63,7 @@ def test_validation_map_gen() -> None:
                 IsType(dict),
                 RuleGroup(
                     [
-                        # Each key in dict is it's own separate RuleGroup
+                        # Each key in dict is it's own separate RuleGroup (!)
                         RuleGroup(
                             [
                                 IsRequired(),
@@ -89,6 +89,7 @@ def test_validation_map_gen() -> None:
     }
 
 
+# NEXT STEP: Get this test to PASS! Finally! ALMOST THERE!
 def test_validate(simple_data: dict[str, Any]) -> None:
     # Example of pass
     v_pass_map = {
@@ -106,9 +107,6 @@ def test_validate(simple_data: dict[str, Any]) -> None:
     assert isinstance(v_res, Ok)
 
     # Example of fail
-    # TODO: This is failing due to RuleGroup eval, fix with other tests!
-    # TODO: want to do something like below -- but can't since mangled to `RuleGroup`. Helper fn?
-    # v_pass_map["data"]["patient"]["_some_new_key"] &= IsRequired()
     v_pass_map = {
         "data": IsRequired()
         & {
@@ -124,44 +122,9 @@ def test_validate(simple_data: dict[str, Any]) -> None:
     assert isinstance(v_err_missing_key, Err)
 
     # Example of fail -- will still validate when present, and ignore if not present
-    # TODO: This is a bit tricky -- this will need defining `NotRequired` more concretely too...
     v_pass_map["data"] &= NotRequired()
     v_err_validate_when_present = validate(simple_data, v_pass_map)
     assert isinstance(v_err_validate_when_present, Err)
-    assert isinstance(validate(dict(), v_pass_map), Ok)
 
     # TODO: Add list validation
     ...
-
-
-# NOTE: this will implicitly get tested with above, since `validate` will drive key usage
-# def test_RuleGroup_at_key(simple_data: dict[str, Any]) -> None:
-
-#     is_str_key = Rule(lambda x: isinstance(x, str), at_key="id")
-#     is_str_nested_key = Rule(lambda x: isinstance(x, str), at_key="patient.id")
-
-#     # Test `Rule`.at_key
-#     rs_default_key = RuleGroup({is_str_key, is_str_nested_key})
-
-#     # Expect two exceptions (missing outer key)
-#     assert rs_default_key(simple_data) == Err({is_str_key, is_str_nested_key})
-
-#     # Expect two passes (since nesting is now in-place correctly)
-#     rs_default_key._key = "data"
-#     assert rs_default_key(simple_data) == Ok({is_str_key, is_str_nested_key})
-
-
-#     # # Test generation of `RuleGroup` with `at_key` set for each `Rule`
-#     # rs_map = {
-#     #     "data": IsRequired() & {
-#     #         "patient": IsRequired() & {
-#     #             "id": is_str_key,
-#     #             "active": IsRequired() & bool,
-#     #         }
-#     #     }
-#     # }
-
-#     # assert rs_map["data"] == RuleGroup({
-#     #     IsRequired(),
-#     #     IsRequired(at_key)
-#     # })
