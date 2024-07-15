@@ -16,7 +16,7 @@ class SomeFile:
         self.filepath = filepath
 
     def __enter__(self):
-        self.data = SomeFile.open(self.filepath)
+        self.data = SomeFile.grab(self.filepath)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -24,7 +24,7 @@ class SomeFile:
         pass
 
     @staticmethod
-    def open(abs_fp: str) -> dict[str, Any] | list[dict[str, Any]] | pl.DataFrame | str | Any:
+    def grab(abs_fp: str) -> dict[str, Any] | list[dict[str, Any]] | pl.DataFrame | str | Any:
         """
         Opens a file given the absolute filepath
         """
@@ -86,7 +86,7 @@ class WorkdirSession:
         self, filename: str
     ) -> dict[str, Any] | list[dict[str, Any]] | pl.DataFrame | str | Any:
         fp = os.path.join(self.cd, filename)
-        data = SomeFile.open(fp)
+        data = SomeFile.grab(fp)
         if self._curr_open_files is not None:
             self._curr_open_files[filename] = data
         return data
@@ -99,5 +99,5 @@ class WorkdirSession:
         for filename in self._filenames:
             if re.search(regex_pattern, filename):
                 fp = os.path.join(self.cd, filename)
-                res.append(SomeFile.open(fp))
+                res.append(self.open(fp))
         return res

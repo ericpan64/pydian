@@ -30,21 +30,21 @@ def test_somefile(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -
 
 def test_somefile_open(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -> None:
     # Happy path!
-    assert simple_data == SomeFile.open(f"{STATIC_DIR}/simple_data.json")
-    assert [simple_data] * 10 == SomeFile.open(f"{STATIC_DIR}/simple_data_10.ndjson")
-    assert_frame_equal(simple_dataframe, SomeFile.open(f"{STATIC_DIR}/simple_dataframe.csv"))  # type: ignore
-    assert_frame_equal(simple_dataframe, SomeFile.open(f"{STATIC_DIR}/simple_dataframe.tsv"))  # type: ignore
-    assert isinstance(SomeFile.open(f"{STATIC_DIR}/example_str.txt"), str)
+    assert simple_data == SomeFile.grab(f"{STATIC_DIR}/simple_data.json")
+    assert [simple_data] * 10 == SomeFile.grab(f"{STATIC_DIR}/simple_data_10.ndjson")
+    assert_frame_equal(simple_dataframe, SomeFile.grab(f"{STATIC_DIR}/simple_dataframe.csv"))  # type: ignore
+    assert_frame_equal(simple_dataframe, SomeFile.grab(f"{STATIC_DIR}/simple_dataframe.tsv"))  # type: ignore
+    assert isinstance(SomeFile.grab(f"{STATIC_DIR}/example_str.txt"), str)
 
     # Error case
     with pytest.raises(ValueError):
-        SomeFile.open(f"{STATIC_DIR}/Non-Existant-File")
+        SomeFile.grab(f"{STATIC_DIR}/Non-Existant-File")
 
     with pytest.raises(FileNotFoundError):
-        SomeFile.open(f"{STATIC_DIR}/Non-Existant-File.txt")
+        SomeFile.grab(f"{STATIC_DIR}/Non-Existant-File.txt")
 
     with pytest.raises(ValueError):
-        SomeFile.open(f"{STATIC_DIR}/example_unsupported_ext.pid")
+        SomeFile.grab(f"{STATIC_DIR}/example_unsupported_ext.pid")
 
 
 def test_workdir_session(simple_data: dict[str, Any], simple_dataframe: pl.DataFrame) -> None:
