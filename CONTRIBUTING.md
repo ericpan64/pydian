@@ -1,9 +1,11 @@
 # Contribution Guide
 
 ## Running Tests
-First: `poetry install && poetry shell`
+First: `poetry install -E dataframes && poetry shell`
 
 Then at the top level dir: `pytest`, or `pytest --cov` to view code coverage
+
+> Note: to install the dataframes module, the `-E dataframes` flag is used for the extra `dataframes` section of `pyproject.toml`
 
 ## Code Formatting
 This repo currently uses the following dev tools:
