@@ -8,7 +8,7 @@ from polars.testing import (
 from result import Err
 
 import pydian.partials as p
-from pydian.dataframes import inner_join, left_join, select
+from pydian.dataframes import inner_join, left_join, select, union
 
 
 def test_select(simple_dataframe: pl.DataFrame) -> None:
@@ -259,59 +259,37 @@ def test_inner_join(simple_dataframe: pl.DataFrame) -> None:
     assert isinstance(result, Err), f"Expected Err, but got {result}"
 
 
-# def test_insert(simple_dataframe: pl.DataFrame) -> None:
-#     rows_to_insert = [{"a": 6, "b": "u", "c": False, "d": None}]
-#     expected_data = {
-#         "a": [0, 1, 2, 3, 4, 5, 6],
-#         "b": ["q", "w", "e", "r", "t", "y", "u"],
-#         "c": [True, False, True, False, False, True, False],
-#         "d": [None, None, None, None, None, None, None],
-#     }
+def test_union(simple_dataframe: pl.DataFrame) -> None:
+    rows_to_union = [{"a": 6, "b": "u", "c": False, "d": None}]
+    expected_data = {
+        "a": [0, 1, 2, 3, 4, 5, 6],
+        "b": ["q", "w", "e", "r", "t", "y", "u"],
+        "c": [True, False, True, False, False, True, False],
+        "d": [None, None, None, None, None, None, None],
+    }
 
-#     # Test basic insert functionality
-#     result = insert(simple_dataframe, rows_to_insert)
-#     pl.DataFrame(expected_data).equals(result)
+    # Test basic union functionality
+    result = union(simple_dataframe, rows_to_union)
+    pl.DataFrame(expected_data).equals(result)  # type: ignore
 
-#     # Test consume functionality
-#     rows_df = pl.DataFrame(rows_to_insert)
-#     result = insert(simple_dataframe, rows_df, consume=True)
-#     pl.DataFrame(expected_data).equals(result)
-#     assert rows_df.is_empty(), f"Expected rows_df to be empty, but got {rows_df}"
+    # # Test consume functionality
+    # rows_df = pl.DataFrame(rows_to_union)
+    # result = union(simple_dataframe, rows_df, consume=True)
+    # pl.DataFrame(expected_data).equals(result)
+    # assert rows_df.is_empty(), f"Expected rows_df to be empty, but got {rows_df}"
 
-#     # Test default value functionality
-#     rows_to_insert_default = [{"a": 7, "b": "i"}]
-#     expected_data_default = {
-#         "a": [0, 1, 2, 3, 4, 5, 7],
-#         "b": ["q", "w", "e", "r", "t", "y", "i"],
-#         "c": [True, False, True, False, False, True, None],
-#         "d": [None, None, None, None, None, None, None],
-#     }
-#     result = insert(simple_dataframe, rows_to_insert_default)
-#     pl.DataFrame(expected_data_default).equals(result)
+    # Test default value functionality
+    rows_to_union_default = [{"a": 7, "b": "i"}]
+    expected_data_default = {
+        "a": [0, 1, 2, 3, 4, 5, 7],
+        "b": ["q", "w", "e", "r", "t", "y", "i"],
+        "c": [True, False, True, False, False, True, None],
+        "d": [None, None, None, None, None, None, None],
+    }
+    result = union(simple_dataframe, rows_to_union_default)
+    pl.DataFrame(expected_data_default).equals(result)  # type: ignore
 
-#     # Test incompatible columns
-#     incompatible_rows = [{"e": 8}]
-#     result = insert(simple_dataframe, incompatible_rows)
-#     assert isinstance(result, Err), f"Expected None, but got {result}"
-
-
-# def test_alter(simple_dataframe: pl.DataFrame) -> None:
-#     # Test the drop_cols feature of the alter function
-#     drop_result: pl.DataFrame = alter(simple_dataframe, drop_cols="a,c")
-#     assert "a" not in drop_result.columns
-#     assert "c" not in drop_result.columns
-
-#     # Test the overwrite_cols feature of the alter function
-#     overwrite_result: pl.DataFrame = alter(
-#         simple_dataframe, overwrite_cols={"b": ["z", "x", "c", "v", "b", "n"]}
-#     )
-#     assert all(overwrite_result["b"] == ["z", "x", "c", "v", "b", "n"])
-
-#     # Test the add_cols feature of the alter function
-#     add_result: pl.DataFrame = alter(simple_dataframe, add_cols={"e": [6, 7, 8, 9, 10, 11]})
-#     assert "e" in add_result.columns
-#     assert all(add_result["e"] == [6, 7, 8, 9, 10, 11])
-
-#     # Test the alter function with invalid input
-#     with pytest.raises(ValueError):
-#         alter(simple_dataframe, add_cols="not a dictionary")  # type: ignore
+    # Test incompatible columns
+    incompatible_rows = [{"e": 8}]
+    result = union(simple_dataframe, incompatible_rows)
+    assert isinstance(result, Err), f"Expected None, but got {result}"
