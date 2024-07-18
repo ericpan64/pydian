@@ -106,114 +106,38 @@ def inner_join(
     return res if not res.is_empty() else Err("Empty dataframe")
 
 
-# def insert(
-#     into: pl.DataFrame,
-#     rows=pl.DataFrame | list[dict[str, Any]],
-#     na_default: Any = None,
-#     consume: bool = False,
-# ) -> pl.DataFrame | Err:
-#     """
-#     Inserts rows into the end of the DataFrame
+def union(
+    into: pl.DataFrame,
+    rows=pl.DataFrame | list[dict[str, Any]],
+    na_default: Any = None,
+    # consume: bool = False,
+) -> pl.DataFrame | Err:
+    """
+    Inserts rows into the end of the DataFrame
 
-#     For a row, if a value is not specified it will be filled with the specified default
+    For a row, if a value is not specified it will be filled with the specified default
 
-#     If the insert operation cannot be done (e.g. incompatible columns), returns `None`
-#     """
-#     if isinstance(rows, list):
-#         rows = pl.DataFrame(rows)
-#     rows.fillna(na_default, inplace=True)
-#     try:
-#         _check_assumptions([into, rows])
-#         if not set(into.columns).intersection(set(rows.columns)):
-#             raise ValueError("Input rows have no overlapping columns, skip insert")
-#         res = pl.concat([into, rows], ignore_index=True)
-#         if consume:
-#             # Drop all of the inserted rows
-#             rows.drop(index=rows.index, inplace=True)
-#     except BaseException as e:
-#         res = Err(f"Error when inserting: {str(e)}")
-#     return res
+    If the union operation cannot be done (e.g. incompatible columns), returns `Err`
+    """
+    if isinstance(rows, list):
+        rows = pl.DataFrame(rows)
 
+    # Ensure all columns in `into` are present in `rows`
+    for col in into.columns:
+        if col not in rows.columns:
+            rows = rows.with_columns(pl.lit(na_default).alias(col))
 
-# def alter(
-#     target: pl.DataFrame,
-#     drop_cols: str | list[str] | None = None,
-#     overwrite_cols: dict[str, pl.Series | list[Any]] | None = None,
-#     add_cols: dict[str | tuple[str, int], pl.Series | list[Any]] | None = None,
-#     na_default: Any = None,
-#     consume: bool = False,
-# ) -> pl.DataFrame | None:
-#     """
-#     Returns a new copy of a modified database, or `None` if modifications aren't done. E.g.:
-#     - If the column already exists when trying to add a new one
-#     - If the length of a new column is larger than the target dataframe
-#     - ... etc.
+    # Ensure all columns in `rows` are present in `into`
+    for col in rows.columns:
+        if col not in into.columns:
+            into = into.with_columns(pl.lit(na_default).alias(col))
 
-#     Operations (in-order):
-#     - `drop_cols` should be comma-delimited or provide the list of columns
-#     - `overwrite_cols` should replace existing columns with provided data (up to that point)
-#     - `add_cols` should map the new column name to initial data (missing values will use `na_default`)
+    try:
+        result = pl.concat([into, rows])
+    except Exception as e:
+        return Err(f"Error when unioning: {str(e)}")
 
-#     # TODO: add "reorder", e.g. {"colName": newPositionInt, "colName1": "<-colName2", "colName3": "colName4->", "colName5": "<~>colName6"}
-#     # TODO: add "extract", e.g. `->` and `+>` conventions from `select`
-#     """
-#     _check_assumptions(target)
-#     res = target
-#     n_rows, _ = res.shape
-#     if drop_cols:
-#         if isinstance(drop_cols, str):
-#             drop_cols = drop_cols.replace(" ", "").split(",")
-#         res = res.drop(drop_cols)
-#     if overwrite_cols:
-#         if not isinstance(overwrite_cols, dict):
-#             raise ValueError(f"`overwrite_cols` should be a dict, got: {type(add_cols)}")
-#         for cname, cdata in overwrite_cols.items():
-#             # Expect column to be there
-#             if cname not in target.columns:
-#                 return None
-#             # Expect columns smaller than existing df
-#             if len(cdata) > n_rows:
-#                 return None
-#             match cdata:
-#                 case list():
-#                     n_new_rows = len(cdata)
-#                     res[0:n_new_rows, cname] = cdata
-#                 case pl.Series():
-#                     # Drop old column, then reinsert to  prev spot
-#                     # NOTE: Assumes pl.Series should be exact -- e.g. including name
-#                     cidx = res.columns.index(cname)
-#                     res.drop(columns=[cname])
-#                     res.insert_column(cidx, cdata)
-#     if add_cols:
-#         if not isinstance(add_cols, dict):
-#             raise ValueError(f"`add_cols` should be a dict, got: {type(add_cols)}")
-#         for cname, cdata in add_cols.items():  # type: ignore
-#             # Default to end if adding
-#             new_idx = len(res.columns)
-#             if isinstance(cname, tuple):
-#                 cname, new_idx = cname
-#             # Prevent overwriting an existing column on accident
-#             if cname in target.columns:
-#                 return None
-#             # Expect columns smaller than existing df
-#             if len(cdata) > n_rows:
-#                 return None
-#             match cdata:
-#                 case list():
-#                     if len(cdata) < n_rows:
-#                         cdata.extend([na_default] * (n_rows - len(cdata)))
-#                     res[cname] = cdata
-#                 case pl.Series():
-#                     res.insert(new_idx, cdata.name, cdata)
-#     # Check that something happened, otherwise return Err
-#     #  (also checks that source wasn't mutated)
-#     # Don't consume if no changes are made
-#     # if res == target:
-#     #     res = Err("No modifications made")
-#     if consume:
-#         target.drop(columns=target.columns, inplace=True)
-
-#     return res
+    return result
 
 
 def _check_assumptions(source: pl.DataFrame | Iterable[pl.DataFrame]) -> None:
@@ -347,9 +271,9 @@ def _nested_select(
 #     if col_to_add:
 #         bump_idx = 0
 #         for idx, vlist in col_to_add.items():
-#             # FYI: inserts at the front, so add extra 1 if we kept the original column
+#             # FYI: unions at the front, so add extra 1 if we kept the original column
 #             for kcbool, s in vlist:
-#                 res.insert(idx + bump_idx + int(kcbool), s.name, s.values)
+#                 res.union(idx + bump_idx + int(kcbool), s.name, s.values)
 #                 bump_idx += 1
 
 #     return res
