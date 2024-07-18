@@ -58,7 +58,7 @@ def select(
 
 
 def outer_join(
-    first: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
+    source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
 ) -> pl.DataFrame | Err:
     """
     Applies a left join
@@ -66,11 +66,11 @@ def outer_join(
     A left join resulting in no change or an empty database results in None
     """
     try:
-        _pre_merge_checks(first, second, on)
+        _pre_merge_checks(source, second, on)
     except KeyError as e:
         return Err(f"Failed pre-merge checks: {str(e)}")
 
-    res = first.join(second, how="left", on=on, join_nulls=False)
+    res = source.join(second, how="left", on=on, join_nulls=False)
 
     # If there were no matches, then return `Err`
     #  Check for non-null cols after the left-join
@@ -93,23 +93,23 @@ def outer_join(
 
 
 def inner_join(
-    first: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
+    source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
 ) -> pl.DataFrame | Err:
     """
     Applies an inner join. Returns `None` if nothing was joined
     """
     try:
-        _pre_merge_checks(first, second, on)
+        _pre_merge_checks(source, second, on)
     except KeyError as e:
         return Err(f"Failed pre-merge checks: {str(e)}")
 
-    res = first.join(second, how="inner", on=on)
+    res = source.join(second, how="inner", on=on)
 
     return res if not res.is_empty() else Err("Empty dataframe")
 
 
 def union(
-    into: pl.DataFrame,
+    source: pl.DataFrame,
     rows=pl.DataFrame | list[dict[str, Any]],
     na_default: Any = None,
     # consume: bool = False,
@@ -125,21 +125,21 @@ def union(
         rows = pl.DataFrame(rows)
 
     # Ensure all columns in `into` are present in `rows`
-    for col in into.columns:
+    for col in source.columns:
         if col not in rows.columns:
             rows = rows.with_columns(pl.lit(na_default).alias(col))
 
     # Ensure all columns in `rows` are present in `into`
     for col in rows.columns:
-        if col not in into.columns:
-            into = into.with_columns(pl.lit(na_default).alias(col))
+        if col not in source.columns:
+            source = source.with_columns(pl.lit(na_default).alias(col))
 
     try:
-        result = pl.concat([into, rows])
+        res = pl.concat([source, rows])
     except Exception as e:
         return Err(f"Error when unioning: {str(e)}")
 
-    return result
+    return res
 
 
 def _check_assumptions(source: pl.DataFrame | Iterable[pl.DataFrame]) -> None:
@@ -166,13 +166,13 @@ def _try_apply(source: Any, apply: ApplyFunc | Iterable[ApplyFunc], key: str) ->
     return res
 
 
-def _pre_merge_checks(first: pl.DataFrame, second: pl.DataFrame, on: str | list[str]) -> None:
+def _pre_merge_checks(source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]) -> None:
     # If _any_ of the provided indices aren't there, return `None`
-    _check_assumptions([first, second])
+    _check_assumptions([source, second])
     if isinstance(on, str):
         on = [on]
     for c in on:
-        if not (c in first.columns and c in second.columns):
+        if not (c in source.columns and c in second.columns):
             raise KeyError(f"Proposed key {c} is not in either column!")
 
 
