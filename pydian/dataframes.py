@@ -57,7 +57,9 @@ def select(
     return res
 
 
-def left_join(first: pl.DataFrame, second: pl.DataFrame, on: str | list[str]) -> pl.DataFrame | Err:
+def outer_join(
+    first: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
+) -> pl.DataFrame | Err:
     """
     Applies a left join
 
