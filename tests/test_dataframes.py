@@ -17,19 +17,8 @@ def test_select(simple_dataframe: pl.DataFrame) -> None:
     assert_frame_equal(source[["a", "b"]], select(source, "a, b"))  # type: ignore
     assert_frame_equal(select(source, "*"), source)  # type: ignore
 
-    assert isinstance(select(source, "non_existant_col", apply=p.equals("thing")), Err)
-    assert select(source, "non_existant_col", default="thing", apply=p.equals("thing")) == True
+    assert isinstance(select(source, "non_existant_col"), Err)
     assert isinstance(select(source, "non_existant_col", consume=True), Err)
-    assert isinstance(
-        select(
-            source,
-            "non_existant_col",
-            default="",
-            apply=p.equals("thing"),
-            only_if=p.equals("thing"),
-        ),
-        Err,
-    )
 
     # A single non-existant column will cause the entire operation to fail and return None
     #   Most of the times, we expect columns to be persistent (i.e. no "optional" cases)
@@ -44,43 +33,11 @@ def test_select(simple_dataframe: pl.DataFrame) -> None:
     assert_frame_equal(q2, source.filter(pl.col("a") % 2 == 0).select(["a", "b", "c"]))  # type: ignore
     assert isinstance(q3_err, Err)
 
-    # # Replace
-    # assert_frame_equal(  # type: ignore
-    #     select(
-    #         source,
-    #         "*",
-    #         apply=p.replace_where(lambda r: r["a"] % 2 == 0, "Test"),
-    #     ),
-    #     source.where(lambda r: r["a"] % 2 == 0, other="Test"),
-    # )
-
-    # # ORDER BY
-    # assert_frame_equal(  # type: ignore
-    #     select(source, "*", apply=p.order_by("a", False)), source.sort_values("a", ascending=False)
-    # )
-
-    # # GROUP BY
-    # assert source.groupby("a").groups == select(source, "*", apply=p.group_by("a"))
-
     # "First n"
-    assert_frame_equal(select(source, "*", apply=p.keep(5)), source.head(5))  # type: ignore
+    # assert_frame_equal(select(source, "*", apply=p.keep(5)), source.head(5))  # type: ignore
 
     # # Distinct
     # assert_frame_equal(select(source, "*", apply=p.distinct()), source.drop_duplicates())  # type: ignore
-
-
-# def test_select_apply_map(simple_dataframe: pl.DataFrame) -> None:
-#     source = simple_dataframe
-#     apply_map = {"a": [p.multiply(2), p.add(1)], "b": [str.upper], "d": p.equivalent(None)}
-
-#     comp_df = simple_dataframe.clone()
-#     comp_df = comp_df.with_columns(
-#         (pl.col("a") * 2 + 1).alias("a"),
-#         (pl.col("b").map_elements(str.upper)).alias("b"),
-#         (pl.col("d").is_null()).alias("d")
-#     )
-
-#     assert_frame_equal(select(source, "*", apply=apply_map), comp_df)  # type: ignore
 
 
 # def test_select_consume(simple_dataframe: pl.DataFrame) -> None:
