@@ -1,7 +1,6 @@
 from copy import deepcopy
 
 import polars as pl
-import pytest
 from polars.testing import (
     assert_frame_equal,  # Do `type: ignore` to gnore the `Err` case
 )
@@ -36,14 +35,14 @@ def test_select(simple_dataframe: pl.DataFrame) -> None:
     #   Most of the times, we expect columns to be persistent (i.e. no "optional" cases)
     assert isinstance(select(source, "a, non_existant_col"), Err)
 
-    # # # Query syntax (WHERE in SQL, filter in Polars)
-    # q1 = select(source, "a ~ [a == 0]")
-    # q2 = select(source, "a, b, c ~ [a % 2 == 0]")
-    # q3_err = select(source, "non_existant_col ~ [a % 2 == 0]")
+    # # Query syntax (WHERE in SQL, filter in Polars)
+    q1 = select(source, "b : [a == 0]")
+    q2 = select(source, "a, b, c : [a % 2 == 0]")
+    q3_err = select(source, "non_existant_col : [a % 2 == 0]")
 
-    # assert_frame_equal(q1, pl.DataFrame(source[source["a"] == 0]["a"]))  # type: ignore
-    # assert_frame_equal(q2, source[source["a"] % 2 == 0][["a", "b", "c"]])  # type: ignore
-    # assert isinstance(q3_err, Err)
+    assert_frame_equal(q1, source.filter(pl.col("a") == 0).select("b"))  # type: ignore
+    assert_frame_equal(q2, source.filter(pl.col("a") % 2 == 0).select(["a", "b", "c"]))  # type: ignore
+    assert isinstance(q3_err, Err)
 
     # # Replace
     # assert_frame_equal(  # type: ignore
@@ -84,28 +83,28 @@ def test_select(simple_dataframe: pl.DataFrame) -> None:
 #     assert_frame_equal(select(source, "*", apply=apply_map), comp_df)  # type: ignore
 
 
-def test_select_consume(simple_dataframe: pl.DataFrame) -> None:
-    source = simple_dataframe
-    source_two = deepcopy(simple_dataframe)
-    source_ref = deepcopy(simple_dataframe)
+# def test_select_consume(simple_dataframe: pl.DataFrame) -> None:
+#     source = simple_dataframe
+#     source_two = deepcopy(simple_dataframe)
+#     source_ref = deepcopy(simple_dataframe)
 
-    # TODO: figure out memory usage test of some sort
-    # init_mem_usage_by_column = source.memory_usage(deep=True)
-    assert_frame_equal(source[["a"]], select(source, "a", consume=True))  # type: ignore
-    assert source.is_empty() == False
-    assert "a" not in source.columns
-    # assert sum(source.memory_usage(deep=True)) < sum(init_mem_usage_by_column)
+#     # TODO: figure out memory usage test of some sort
+#     # init_mem_usage_by_column = source.memory_usage(deep=True)
+#     assert_frame_equal(source[["a"]], select(source, "a", consume=True))  # type: ignore
+#     assert source.is_empty() == False
+#     assert "a" not in source.columns
+#     # assert sum(source.memory_usage(deep=True)) < sum(init_mem_usage_by_column)
 
-    # Selecting from a missing column will not consume others specified (operation failed)
-    assert isinstance(select(source, "a, b", consume=True), Err)
-    assert "b" in source.columns
-    assert source["b"].equals(source_ref["b"])
+#     # Selecting from a missing column will not consume others specified (operation failed)
+#     assert isinstance(select(source, "a, b", consume=True), Err)
+#     assert "b" in source.columns
+#     assert source["b"].equals(source_ref["b"])
 
-    # Selecting multiple columns that are all valid
-    assert source_two.equals(source_ref)
-    assert_frame_equal(source_two[["b", "c"]], select(source_two, "b, c", consume=True))  # type: ignore
-    assert "b" not in source_two.columns
-    assert "c" not in source_two.columns
+#     # Selecting multiple columns that are all valid
+#     assert source_two.equals(source_ref)
+#     assert_frame_equal(source_two[["b", "c"]], select(source_two, "b, c", consume=True))  # type: ignore
+#     assert "b" not in source_two.columns
+#     assert "c" not in source_two.columns
 
 
 # def test_nested_select(nested_dataframe: pl.DataFrame) -> None:

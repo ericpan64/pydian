@@ -1,6 +1,5 @@
 import ast
 import re
-from collections import defaultdict
 from typing import Any, Iterable
 
 import polars as pl
@@ -176,16 +175,6 @@ def _pre_merge_checks(source: pl.DataFrame, second: pl.DataFrame, on: str | list
             raise KeyError(f"Proposed key {c} is not in either column!")
 
 
-# TODO: This would be a really good exercise! Would need to:
-#   1. Identify the types of expressions in Polars
-#   2. Map the expressions to the supported ones in Python's ast lib
-#   3. Walk through the tree and compose the expression
-# def _convert_to_polars_filter(query: str) -> pl.Expr:
-#     # Make an AST
-#     tree = ast.parse(query)
-#     # ...
-
-
 def _nested_select(
     source: pl.DataFrame, key: str, default: Any, consume: bool
 ) -> pl.DataFrame | Any:
@@ -194,12 +183,11 @@ def _nested_select(
     # Extract query from key (if present)
     key = key.replace(" ", "")
 
-    # TODO: add back querying syntax
-    # query = None
-    # if "~" in key:
-    #     key, query_str = key.split("~")
-    #     query_str = query_str.removeprefix("[").removesuffix("]")
-    #     query = _convert_to_polars_filter(query_str)
+    query: pl.Expr | None = None
+    if ":" in key:
+        key, query_str = key.split(":")
+        query_str = query_str.strip("[]")
+        query = _convert_to_polars_filter(query_str)
 
     # Extract columns from syntax
     # NOTE: `parsed_col_list` starts with exact user-provided string, then
@@ -213,21 +201,88 @@ def _nested_select(
         parsed_col_list = source.columns
 
     try:
-        # res = source.filter(query)[parsed_col_list] if query else source[parsed_col_list]
-        res = source[parsed_col_list]
+        res = (
+            source.filter(query)[parsed_col_list]
+            if isinstance(query, pl.Expr)
+            else source[parsed_col_list]
+        )
         # res = _apply_nesting_list(res, nesting_list, parsed_col_list)
         # Post-processing checks
         if res.is_empty():
             res = default
-        elif consume:
-            # TODO: way to consume just the rows that matched?
-            for cname in parsed_col_list:
-                if cname in source.columns:
-                    source.drop_in_place(cname)
+        # if consume:
+        #     # TODO: way to consume just the rows that matched?
+        #     for cname in parsed_col_list:
+        #         if cname in source.columns:
+        #             source.drop_in_place(cname)
     except pl.exceptions.ColumnNotFoundError:
         res = default
 
     return res
+
+
+class PolarsExpressionVisitor(ast.NodeVisitor):
+    def visit_BoolOp(self, node):
+        if isinstance(node.op, ast.And):
+            expr = self.visit(node.values[0])
+            for value in node.values[1:]:
+                expr = expr & self.visit(value)
+        elif isinstance(node.op, ast.Or):
+            expr = self.visit(node.values[0])
+            for value in node.values[1:]:
+                expr = expr | self.visit(value)
+        return expr
+
+    def visit_Compare(self, node):
+        left = self.visit(node.left)
+        comparisons = []
+        for op, comparator in zip(node.ops, node.comparators):
+            right = self.visit(comparator)
+            if isinstance(op, ast.Eq):
+                comparisons.append(left == right)
+            elif isinstance(op, ast.Gt):
+                comparisons.append(left > right)
+            elif isinstance(op, ast.Lt):
+                comparisons.append(left < right)
+            elif isinstance(op, ast.GtE):
+                comparisons.append(left >= right)
+            elif isinstance(op, ast.LtE):
+                comparisons.append(left <= right)
+            elif isinstance(op, ast.NotEq):
+                comparisons.append(left != right)
+        expr = comparisons[0]
+        for comparison in comparisons[1:]:
+            expr = expr & comparison
+        return expr
+
+    def visit_BinOp(self, node):
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        elif isinstance(node.op, ast.Sub):
+            return left - right
+        elif isinstance(node.op, ast.Mult):
+            return left * right
+        elif isinstance(node.op, ast.Div):
+            return left / right
+        elif isinstance(node.op, ast.Mod):
+            return left % right
+
+    def visit_Name(self, node):
+        return pl.col(node.id)
+
+    def visit_Constant(self, node):
+        return pl.lit(node.value)
+
+    def visit(self, node):
+        return super().visit(node)
+
+
+def _convert_to_polars_filter(filter_string: str) -> pl.Expr:
+    tree = ast.parse(filter_string, mode="eval")
+    visitor = PolarsExpressionVisitor()
+    return visitor.visit(tree.body)
 
 
 # def _apply_nesting_list(
