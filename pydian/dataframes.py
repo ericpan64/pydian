@@ -16,43 +16,21 @@ def select(
     source: pl.DataFrame,
     key: str,
     default: Any = Err("Default Err: key didn't match"),
-    apply: ApplyFunc | Iterable[ApplyFunc]
-    # | dict[str, ApplyFunc | Iterable[ApplyFunc] | Any]
-    | None = None,
-    only_if: ConditionalCheck | None = None,
     consume: bool = False,
 ) -> pl.DataFrame | Err:
     """
-    Gets a subset of a DataFrame. The following conditions apply:
-    1. Columns must have names, otherwise an exception will be raised
-    2. Index names will be ignored: a row is identified by its 0-indexed position
-
-    PURE FUNCTION: `source` is not modified. This makes memory management important
+    Selects a subset of a DataFrame. `key` has some convenience functions
 
     `key` notes:
-    - Strings represent columns, int represent rows
-    - _Order matters_
+    - "*" == all columns
+    - "a, b, c" == columns a, b, c (in-order)
+    - "a, b : c > 3" == columns a, b where column c > 3
+    - "* : c != 3" == all columns where column c != 3
 
-
-    - `consume`: Remove the original data from the dataframe from memory
+    ... etc.
     """
     _check_assumptions(source)
-
     res = _nested_select(source, key, default, consume)
-
-    if not isinstance(res, Err) and only_if:
-        res = res if only_if(res) else Err("`only_if` check did not pass")
-
-    if not isinstance(res, Err) and apply:
-        if isinstance(apply, dict) and isinstance(res, pl.DataFrame):
-            # Each key is a column name
-            #  and each value contains a list of operations
-            for k, v in apply.items():
-                # For each column, apply the list of operations (v) to each value
-                res[k] = res[k].apply(p.do(_try_apply, v, key))
-        else:
-            res = _try_apply(res, apply, key)  # type: ignore
-
     return res
 
 
