@@ -30,7 +30,43 @@ def select(
     ... etc.
     """
     _check_assumptions(source)
-    res = _nested_select(source, key, default, consume)
+
+    # Extract query from key (if present)
+    key = key.replace(" ", "")
+    query: pl.Expr | None = None
+    if ":" in key:
+        key, query_str = key.split(":")
+        query_str = query_str.strip("[]")
+        query = _convert_to_polars_filter(query_str)
+
+    # Extract columns from syntax
+    # NOTE: `parsed_col_list` starts with exact user-provided string, then
+    #        gets updated in `_generate_nesting_list` to exclude nesting (so matches colname)
+    parsed_col_list = re.split(REGEX_COMMA_EXCLUDE_BRACKETS, key)
+    # nesting_list = _generate_nesting_list(parsed_col_list)
+
+    # Handle "*" case
+    # TODO: Handle "*" with other items, e.g. `"*, a -> {b, c}`?
+    if parsed_col_list == ["*"]:
+        parsed_col_list = source.columns
+
+    try:
+        res = (
+            source.filter(query)[parsed_col_list]
+            if isinstance(query, pl.Expr)
+            else source[parsed_col_list]
+        )
+        # res = _apply_nesting_list(res, nesting_list, parsed_col_list)
+        # Post-processing checks
+        if res.is_empty():
+            res = default
+        # if consume:
+        #     # TODO: way to consume just the rows that matched?
+        #     for cname in parsed_col_list:
+        #         if cname in source.columns:
+        #             source.drop_in_place(cname)
+    except pl.exceptions.ColumnNotFoundError:
+        res = default
     return res
 
 
@@ -151,52 +187,6 @@ def _pre_merge_checks(source: pl.DataFrame, second: pl.DataFrame, on: str | list
     for c in on:
         if not (c in source.columns and c in second.columns):
             raise KeyError(f"Proposed key {c} is not in either column!")
-
-
-def _nested_select(
-    source: pl.DataFrame, key: str, default: Any, consume: bool
-) -> pl.DataFrame | Any:
-    res = None
-
-    # Extract query from key (if present)
-    key = key.replace(" ", "")
-
-    query: pl.Expr | None = None
-    if ":" in key:
-        key, query_str = key.split(":")
-        query_str = query_str.strip("[]")
-        query = _convert_to_polars_filter(query_str)
-
-    # Extract columns from syntax
-    # NOTE: `parsed_col_list` starts with exact user-provided string, then
-    #        gets updated in `_generate_nesting_list` to exclude nesting (so matches colname)
-    parsed_col_list = re.split(REGEX_COMMA_EXCLUDE_BRACKETS, key)
-    # nesting_list = _generate_nesting_list(parsed_col_list)
-
-    # Handle "*" case
-    # TODO: Handle "*" with other items, e.g. `"*, a -> {b, c}`?
-    if parsed_col_list == ["*"]:
-        parsed_col_list = source.columns
-
-    try:
-        res = (
-            source.filter(query)[parsed_col_list]
-            if isinstance(query, pl.Expr)
-            else source[parsed_col_list]
-        )
-        # res = _apply_nesting_list(res, nesting_list, parsed_col_list)
-        # Post-processing checks
-        if res.is_empty():
-            res = default
-        # if consume:
-        #     # TODO: way to consume just the rows that matched?
-        #     for cname in parsed_col_list:
-        #         if cname in source.columns:
-        #             source.drop_in_place(cname)
-    except pl.exceptions.ColumnNotFoundError:
-        res = default
-
-    return res
 
 
 class PolarsExpressionVisitor(ast.NodeVisitor):
