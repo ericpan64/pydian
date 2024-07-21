@@ -45,11 +45,15 @@ def select(
     parsed_col_list = re.split(REGEX_COMMA_EXCLUDE_BRACKETS, key)
     # nesting_list = _generate_nesting_list(parsed_col_list)
 
-    # Handle "*" case
-    # TODO: Handle "*" with other items, e.g. `"*, a -> {b, c}`?
-    if parsed_col_list == ["*"]:
-        parsed_col_list = source.columns
+    # Handle "*" case -- replace each instance with `source.columns`
+    if "*" in parsed_col_list:
+        # Find indices of all occurrences of "*"
+        star_idx_list = [i for i, x in enumerate(parsed_col_list) if x == "*"]
+        # Replace each "*" with the replacement values
+        for idx in reversed(star_idx_list):
+            parsed_col_list[idx : idx + 1] = source.columns
 
+    # Grab correct subset/slice of the dataframe
     try:
         res = (
             source.filter(query)[parsed_col_list]
@@ -67,6 +71,7 @@ def select(
         #             source.drop_in_place(cname)
     except pl.exceptions.ColumnNotFoundError:
         res = default
+
     return res
 
 
