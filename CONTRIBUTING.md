@@ -25,7 +25,7 @@ Thank you for contributing and working to keep things organized!
 ### Publishing to PyPI
 
 ```bash
-poetry publish -u <username> -p <password>
+poetry publish -u __token__ -p <token starting with pypi-...>
 ```
 
 There's also a `poetry config` setting, though this seems to be fine for now!

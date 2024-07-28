@@ -20,14 +20,14 @@ def select(
     Selects a subset of a DataFrame. `key` has some convenience functions
 
     `key` notes:
-    - "*" == all columns
-    - "a, b, c" == columns a, b, c (in-order)
-    - "a, b : c > 3" == columns a, b where column c > 3
-    - "* : c != 3" == all columns where column c != 3
-    - "dict_col -> [a, b, c]" == "dict_col.a, dict_col.b, dict_col.c"
-    - "dict_col +> [a, b, c]" == "dict_col, dict_col -> [a, b, c]"
-    - "dict_col -> {"A": a, "B": b}" == "dict_col.a, dict_col.b" and rename `a -> A, b -> B`
-    - "dict_col +> {"A": a, "B": b}" == "dict_col, dict_col -> {"A": a, "B": b}"
+    - "*" -- all columns
+    - "a, b, c" -- columns a, b, c (in-order)
+    - "a, b : c > 3" -- columns a, b where column c > 3
+    - "* : c != 3" -- all columns where column c != 3
+    - "dict_col -> [a, b, c]" -- "dict_col.a, dict_col.b, dict_col.c"
+    - "dict_col +> [a, b, c]" -- "dict_col, dict_col -> [a, b, c]"
+    - "dict_col -> {"A": a, "B": b}" --"dict_col.a, dict_col.b" and rename `a -> A, b -> B`
+    - "dict_col +> {"A": a, "B": b}" -- "dict_col, dict_col -> {"A": a, "B": b}"
 
     `consume` attempts to drop columns that matched in the `select` from the source dataframe
 
@@ -76,7 +76,7 @@ def left_join(
     """
     Applies a left join
 
-    A left join resulting in no change or an empty database results in None
+    A left join resulting in no change or an empty dataframe results in None
     """
     try:
         _pre_merge_checks(source, second, on)
@@ -93,16 +93,7 @@ def left_join(
     if not matched:
         return Err("No matching columns on left join")
 
-    # # Only consume if there was a change
-    # if consume:
-    #     # Only drop rows that were included in the left join
-    #     matched_rows = select(res, f"{','.join(on)} ~ [_merge == 'both']")  # type: ignore
-    #     # TODO: making assumption on indices here, is this a problem?
-    #     # TODO: ^Yes that was a problem, good intuition! Have to match on the _value_
-    #     if not matched_rows.is_empty():
-    #         second.drop(index=matched_rows.index, inplace=True)  # type: ignore
-
-    return pl.DataFrame(res) if not res.is_empty() else Err("Empty dataframe after left join")
+    return res if not res.is_empty() else Err("Empty dataframe after left join")
 
 
 def inner_join(
