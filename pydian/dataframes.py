@@ -1,14 +1,12 @@
 import ast
 import re
-from collections import defaultdict
 from typing import Any, Callable, Iterable
 
 import polars as pl
 from result import Err
 
-import pydian.partials as p
-
-REGEX_COMMA_EXCLUDE_BRACKETS = r",(?![^{}]*\})"
+COMMAS_OUTSIDE_OF_BRACKETS = r",(?![^{}\[\]]*[}\]])"
+COLON_OUTSIDE_OF_BRACKETS = r":(?![^{]*})"
 
 
 def select(
@@ -33,34 +31,23 @@ def select(
 
     # Extract query from key (if present)
     key = key.replace(" ", "")
-    query: pl.Expr | None = None
-    if ":" in key:
-        key, query_str = key.split(":")
+    query: pl.Expr | None = None  # TODO: handle multiple query case (i.e. `,` in select)
+    if re.search(COLON_OUTSIDE_OF_BRACKETS, key):
+        key, query_str = re.split(COLON_OUTSIDE_OF_BRACKETS, key, maxsplit=1)
         query_str = query_str.strip("[]")
         query = _convert_to_polars_filter(query_str)
 
     # Extract columns from syntax
-    # NOTE: `parsed_col_list` starts with exact user-provided string, then
-    #        gets updated in `_generate_nesting_list` to exclude nesting (so matches colname)
-    parsed_col_list = re.split(REGEX_COMMA_EXCLUDE_BRACKETS, key)
-    nesting_list = _generate_nesting_list(parsed_col_list)
-
-    # Handle "*" case -- replace each instance with `source.columns`
-    if "*" in parsed_col_list:
-        # Find indices of all occurrences of "*"
-        star_idx_list = [i for i, x in enumerate(parsed_col_list) if x == "*"]
-        # Replace each "*" with the replacement values
-        for idx in reversed(star_idx_list):
-            parsed_col_list[idx : idx + 1] = source.columns
+    parsed_col_list = re.split(COMMAS_OUTSIDE_OF_BRACKETS, key)
+    parsed_nested_col_list = _generate_nesting_list(
+        parsed_col_list
+    )  # TODO: move within the `try ` block?
 
     # Grab correct subset/slice of the dataframe
     try:
-        res = (
-            source.filter(query)[parsed_col_list]
-            if isinstance(query, pl.Expr)
-            else source[parsed_col_list]
-        )
-        res = _apply_nesting_list(res, nesting_list, parsed_col_list)
+        if isinstance(query, pl.Expr):
+            source = source.filter(query)
+        res = _apply_nested_col_list(source, parsed_nested_col_list)
         # Post-processing checks
         if res.is_empty():
             res = default
@@ -249,147 +236,137 @@ def _convert_to_polars_filter(filter_string: str) -> pl.Expr:
 
 
 # TODO: NEXT STEP -- this thing
-def _apply_nesting_list(
+def _apply_nested_col_list(
     source: pl.DataFrame,
-    nesting_list: list[tuple[bool, str | list[str] | dict[str, str]] | None],
-    parsed_col_list: list[str],
+    parsed_nested_col_list: list[str | tuple[bool, list[str] | dict[str, str]]],
 ) -> pl.DataFrame:
     """
-    Completes handling of the `.`, `->`, `+>` operators which is the parsed `nesting_list`
+    Completes handling of the `.`, `->`, `+>` operators which is the `parsed_nested_col_list`.
+      Converts the string expressions into corresponding Polars expression to apply at the end
 
-    The incoming "nesting_list" looks something like:
-        [None, (True, "b"), (False, "c.d"), None, (False, {"b", "c.d"}) ...]
+    The incoming "parsed_nested_col_list" looks something like:
+        ["some_col", "b", "c.d", (True, ["b", "c.d"]), (False, {"new_name": "c.d"}) ...]
     """
-    # Prevents `SettingWithCopyWarning`, ref: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
-    # TODO: does this hog too much extra memory?
-    # res = source.clone()
+
+    # Handle "*" case -- replace each instance with `source.columns`
+    if "*" in parsed_nested_col_list:
+        # Find indices of all occurrences of "*"
+        star_idx_list = [i for i, x in enumerate(parsed_nested_col_list) if x == "*"]
+        # Replace each "*" with the replacement values
+        for idx in reversed(star_idx_list):
+            parsed_nested_col_list[idx : idx + 1] = source.columns
+
+    # For each column specified, convert it to the corresponding Polars expression.
+    #   Apply the expression at the end to get the final result
     res = source
-
-    # Apply nesting if applicable
-    # NOTE: We keep `(bool, newCol)` instead of just `newCol` to handle indexing of cols correctly
-    col_to_del: list[str] = []
-    col_to_add: defaultdict[int, list[tuple[bool, pl.Series]]] = defaultdict(list)
-    if any(nesting_list):
-        for i, nesting in enumerate(nesting_list):
-            col_name = parsed_col_list[i]
-            if nesting:
-                keep_col, col_obj = nesting
-                # Single-column case (e.g. "col_name")
-                if isinstance(col_obj, str):
-                    nesting_expr = _nesting_to_polars_expr(col_obj, col_name)
-                    res = res.select(nesting_expr)
-                    # HACK: Assume the new column name is the last key in the nesting
-                    _, last_part = col_obj.rsplit(".", maxsplit=1)
-                    res = res.rename({last_part: f"{col_name}.{col_obj}"})
-                # TODO: Next step -- add this back, handle types
-                # # Expansion case (`->` or `+>`)
-                # elif isinstance(col_obj, list):
-                #     for new_nesting in col_obj:
-                #         nesting_expr = _nesting_to_polars_expr(new_nesting, col_name)
-                #         s: pl.Series = res.select(nesting_expr)
-                #         s = s.rename({f"{col_name}.{new_nesting}"})
-                #         col_to_add[i].append((keep_col, s))
-                #     if not keep_col:
-                #         col_to_del.append(res.columns[i])
-                # # Expansion case (`->` or `+>`) with renaming
-                # elif isinstance(col_obj, dict):
-                #     for new_name, new_nesting in col_obj.items():
-                #         nesting_expr = _nesting_to_polars_expr(new_nesting, col_name)
-                #         s: pl.Series = res.select(nesting_expr)
-                #         s = s.rename(new_name)
-                #         col_to_add[i].append((keep_col, s))
-                #     if not keep_col:
-                #         col_to_del.append(res.columns[i])
-
-    # Post-processing clean-up
-    if col_to_del:
-        res.drop_in_place([col_to_del])  # type: ignore
-    if col_to_add:
-        bump_idx = 0
-        for idx, col_tuple_list in col_to_add.items():
-            # FYI: we add +1 if `keep_bool` is True to the new column position (so it goes after)
-            for keep_bool, new_col in col_tuple_list:
-                res.insert_column(idx + bump_idx + int(keep_bool), new_col)
-                bump_idx += 1
-
+    expr_list = []
+    for i, nested_col in enumerate(parsed_nested_col_list):
+        # Single-column case (e.g. "col_name")
+        if isinstance(nested_col, str):
+            nesting_expr = _nesting_to_polars_expr(nested_col)
+            expr_list.append(nesting_expr)
+        # # Expansion case (`->` or `+>`)
+        elif isinstance(nested_col, tuple):
+            keep_col, col_obj = nested_col
+            # keep column if specified
+            if keep_col:
+                expr_list.append(pl.col(res.columns[i]))
+            if isinstance(col_obj, list):
+                for new_nesting in col_obj:
+                    nesting_expr = _nesting_to_polars_expr(new_nesting)
+                    expr_list.append(nesting_expr)
+            # renaming case
+            elif isinstance(col_obj, dict):
+                for new_name, new_nesting in col_obj.items():
+                    nesting_expr = _nesting_to_polars_expr(new_nesting, new_name)
+                    expr_list.append(nesting_expr)
+    if expr_list:
+        res = res.select(expr_list)
     return res
 
 
-def _nesting_to_polars_expr(nesting: str, col_name: str) -> pl.Expr:
+def _nesting_to_polars_expr(nested_col: str, new_name: str | None = None) -> pl.Expr:
     """
     Converts something like:
         `a.b.c[0].d`
       into:
         `pl.col("a").struct.field("b").struct.field("c").list[0].struct.field("d")`
     """
-    res = pl.col(col_name)
-    for item in nesting.split("."):
-        # Handle brackets -- grab value (assume just integer for now)
-        list_idx: str | None = None
-        if "[" in item:
-            list_idx = item[item.index("[") + 1 : item.index("]")]
-        res = res.struct.field(item)
-        if list_idx is not None:
-            res = res.list[int(list_idx)]
+    nesting_list = nested_col.split(".", maxsplit=1)
+
+    res = pl.col(nesting_list[0])
+    if len(nesting_list) > 1:
+        for item in nesting_list[1].split("."):
+            # Handle brackets -- grab value (assume just integer for now)
+            list_idx: str | None = None
+            if "[" in item:
+                lbracket_idx = item.index("[")
+                list_idx = item[lbracket_idx + 1 : item.index("]")]
+                item = item[:lbracket_idx]  # Remove bracket from original str
+            res = res.struct.field(item)
+            if list_idx is not None:
+                # TODO: Handle more than just single index, e.g. handle slices?
+                res = res.list[int(list_idx)]
+
+    if new_name:
+        res = res.alias(new_name)
+    else:
+        res = res.alias(nested_col)
+
     return res
 
 
 def _generate_nesting_list(
     parsed_col_list: list[str],
-) -> list[tuple[bool, str | list[str] | dict[str, str]] | None]:
+) -> list[str | tuple[bool, list[str] | dict[str, str]]]:
     """
     Return whether a specific column index should get nesting logic applied
 
     Given `parsed_col_list` as follows:
-        ['c.d', 'reg_col', 'some_json_col -> ['b', 'c.d']', 'some_json_col +> {'new_name': 'c.d'}]
-      The resulting "nesting_list" looks something like:
-        [(True, "c.d"), None, (False, ["b", "c.d"]}), (True, {'new_name': 'c.d'})]
+        ['c.d', 'reg_col', "some_json_col -> ['b', 'c.d']", "some_json_col +> {'new_name': 'c.d'}"]
+      The resulting "parsed_nested_col_list" looks something like -- a tuple of `(keep_col, nesting)`:
+        ['c.d', 'reg_col', (False, ['some_json_col.b', 'some_json_col.c.d']}), (True, {'new_name': 'some_json_col.c.d'})]
       A more complex nesting will index-into different values (set: one -> one/many new cols)
         and possibly rename them as well (dict: one -> one/many new cols with new names)
 
     For each column, check if:
       1. Column should be extracted and consumed (`->`)
       2. Column should be extracted and kept (`+>`)
-      3. Column should be nested into and consumed (using `.` syntax)
-
-    Order matters!
-
-    NOTE: _Not_ a pure function -- assume `parsed_col_list` might be modified
+      3. Column should be nested into and consumed (any other str and supporting `.` syntax)
     """
-    nesting_list: list[tuple[bool, str | list[str] | dict[str, str]] | None] = []
+    parsed_nested_col_list: list[str | tuple[bool, list[str] | dict[str, str]]] = []
 
-    for idx, col_name in enumerate(parsed_col_list):
+    for col_name in parsed_col_list:
         # 1. extract, and consume original
         # 2. extract, and keep original
         if ("->" in col_name) or ("+>" in col_name):
             keep_col = "+>" in col_name
-            splitter = "+>" if keep_col else "->"
-            col_name, content = col_name.split(splitter)
-            col_obj = _extract_list_or_dict(content)
+            col_name, content = col_name.split("+>" if keep_col else "->")
+            col_obj = _extract_list_or_dict(content, add_prefix=col_name)
             if col_obj:
-                # NOTE: Remove the nesting from `parsed_col_list` for later processing
-                parsed_col_list[idx] = col_name
-                nesting_list.append((keep_col, col_obj))
+                parsed_nested_col_list.append((keep_col, col_obj))
             else:
-                nesting_list.append(None)
-        # 3. nesting, consume and replace
-        elif "." in col_name:
-            col_name, nesting = col_name.split(".", maxsplit=1)
-            # NOTE: Remove the nesting from `parsed_col_list` for later processing
-            parsed_col_list[idx] = col_name
-            nesting_list.append((False, nesting))
+                raise RuntimeError("Error processing `->` or `+>` syntax")
+        # 3. regular string nesting
         else:
-            nesting_list.append(None)
-    return nesting_list
+            parsed_nested_col_list.append(col_name)
+    return parsed_nested_col_list
 
 
-def _extract_list_or_dict(s: str) -> list[str] | dict[str, str] | None:
+def _extract_list_or_dict(
+    s: str, add_prefix: str | None = None
+) -> list[str] | dict[str, str] | None:
     try:
         # Clean string a bit
         s = s.replace(";", "").replace("(", "").replace(")", "")
         res = ast.literal_eval(s)
         if not (isinstance(res, list) or isinstance(res, dict)):
-            raise ValueError
+            raise ValueError("Need to specify a list or dict after `->` or `+>`")
+        # Add a prefix to list/dict values if specified
+        if add_prefix and isinstance(res, list):
+            res = [f"{add_prefix}.{s}" for s in res]
+        elif add_prefix and isinstance(res, dict):
+            res = {k: f"{add_prefix}.{v}" for k, v in res.items()}
         return res
     except (ValueError, SyntaxError):
         return None
