@@ -12,7 +12,7 @@ COLON_OUTSIDE_OF_BRACKETS = r":(?![^{]*})"
 def select(
     source: pl.DataFrame,
     key: str,
-    default: Any = Err("Default Err: key didn't match"),
+    default: Any = Err("Default Err: `select` key didn't match"),
     consume: bool = False,
     rename: dict[str, str] | Callable[[str], str] | None = None,
 ) -> pl.DataFrame | Err:
@@ -24,14 +24,20 @@ def select(
     - "a, b, c" == columns a, b, c (in-order)
     - "a, b : c > 3" == columns a, b where column c > 3
     - "* : c != 3" == all columns where column c != 3
+    - "dict_col -> [a, b, c]" == "dict_col.a, dict_col.b, dict_col.c"
+    - "dict_col +> [a, b, c]" == "dict_col, dict_col -> [a, b, c]"
+    - "dict_col -> {"A": a, "B": b}" == "dict_col.a, dict_col.b" and rename `a -> A, b -> B`
+    - "dict_col +> {"A": a, "B": b}" == "dict_col, dict_col -> {"A": a, "B": b}"
 
-    ... etc.
+    `consume` attempts to drop columns that matched in the `select` from the source dataframe
+
+    `rename` is the standard Polars API call and is called at the very end
     """
     _check_assumptions(source)
 
     # Extract query from key (if present)
     key = key.replace(" ", "")
-    query: pl.Expr | None = None  # TODO: handle multiple query case (i.e. `,` in select)
+    query: pl.Expr | None = None
     if re.search(COLON_OUTSIDE_OF_BRACKETS, key):
         key, query_str = re.split(COLON_OUTSIDE_OF_BRACKETS, key, maxsplit=1)
         query_str = query_str.strip("[]")
@@ -39,9 +45,7 @@ def select(
 
     # Extract columns from syntax
     parsed_col_list = re.split(COMMAS_OUTSIDE_OF_BRACKETS, key)
-    parsed_nested_col_list = _generate_nesting_list(
-        parsed_col_list
-    )  # TODO: move within the `try ` block?
+    parsed_nested_col_list = _generate_nesting_list(parsed_col_list)
 
     # Grab correct subset/slice of the dataframe
     try:
@@ -235,7 +239,6 @@ def _convert_to_polars_filter(filter_string: str) -> pl.Expr:
     return visitor.visit(tree.body)
 
 
-# TODO: NEXT STEP -- this thing
 def _apply_nested_col_list(
     source: pl.DataFrame,
     parsed_nested_col_list: list[str | tuple[bool, list[str] | dict[str, str]]],
