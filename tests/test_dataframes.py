@@ -12,7 +12,7 @@ from pydian.dataframes import inner_join, outer_join, select, union
 
 def test_select(simple_dataframe: pl.DataFrame) -> None:
     source = simple_dataframe
-
+    select(source, "a")
     assert_frame_equal(select(source, "a"), source[["a"]])  # type: ignore
     assert_frame_equal(source[["a", "b"]], select(source, "a, b"))  # type: ignore
     assert_frame_equal(select(source, "*"), source)  # type: ignore
@@ -68,66 +68,87 @@ def test_nested_select(nested_dataframe: pl.DataFrame) -> None:
     # TODO: Refactor this test using the expected behavior
     source: pl.DataFrame = nested_dataframe
 
-    single_nesting_expected = pl.DataFrame(
-        source.get_column("simple_nesting").struct.field("patient").struct.field("id")
+    single_nesting_expected = source.select(
+        pl.col("simple_nesting")
+        .struct.field("patient")
+        .struct.field("id")
+        .alias("simple_nesting.patient.id")
     )
-    single_nesting_expected.columns = ["simple_nesting.patient.id"]
     select_single_nesting = select(source, "simple_nesting.patient.id")
     assert_frame_equal(select_single_nesting, single_nesting_expected)  # type: ignore
 
-    # multi_nesting_expected = source[["simple_nesting", "deep_nesting"]].clone()
-    # multi_nesting_expected["simple_nesting"] = multi_nesting_expected["simple_nesting"].apply(
-    #     lambda r: r["patient"]["id"] if isinstance(r, dict) else None
-    # )
-    # multi_nesting_expected["deep_nesting"] = multi_nesting_expected["deep_nesting"].apply(
-    #     lambda r: r["patient"]["dicts"][0]["inner"]["msg"] if isinstance(r, dict) else None
-    # )
-    # multi_nesting_expected.columns = [
-    #     "simple_nesting.patient.id",
-    #     "deep_nesting.patient.dicts[0].inner.msg",
-    # ]
-    # assert_frame_equal(  # type: ignore
-    #     select(source, "simple_nesting.patient.id, deep_nesting.patient.dicts[0].inner.msg"),
-    #     multi_nesting_expected,
-    # )
+    multi_nesting_expected = source.select(
+        [
+            pl.col("simple_nesting")
+            .struct.field("patient")
+            .struct.field("id")
+            .alias("simple_nesting.patient.id"),
+            pl.col("deep_nesting")
+            .struct.field("patient")
+            .struct.field("dicts")
+            .list.first()
+            .struct.field("inner")
+            .struct.field("msg")
+            .alias("deep_nesting.patient.dicts[0].inner.msg"),
+        ]
+    )
+    select_multi_nesting = select(
+        source, "simple_nesting.patient.id, deep_nesting.patient.dicts[0].inner.msg"
+    )
+    assert_frame_equal(
+        select_multi_nesting,  # type: ignore
+        multi_nesting_expected,
+    )
 
-    # # Extend, and consume source col (->)
-    # extend_expected = single_nesting_expected.clone()
-    # extend_expected["simple_nesting.patient.active"] = source["simple_nesting"].apply(
-    #     lambda r: r["patient"]["active"] if isinstance(r, dict) else None
-    # )
-    # assert_frame_equal(  # type: ignore
-    #     select(source, "simple_nesting -> ['patient.id', 'patient.active']"), extend_expected
-    # )
+    # Extend, and consume source col (->)
+    extend_expected = source.select(
+        pl.col("simple_nesting")
+        .struct.field("patient")
+        .struct.field("id")
+        .alias("simple_nesting.patient.id"),
+        pl.col("simple_nesting")
+        .struct.field("patient")
+        .struct.field("active")
+        .alias("simple_nesting.patient.active"),
+    )
+    select_extend = select(source, "simple_nesting -> ['patient.id', 'patient.active']")
+    assert_frame_equal(select_extend, extend_expected)  # type: ignore
 
-    # # # Rename cols
-    # extend_expected.columns = ["pid", "pactive"]
-    # assert_frame_equal(  # type: ignore
-    #     select(source, "simple_nesting -> {'pid': 'patient.id', 'pactive': 'patient.active'}"),
-    #     extend_expected,
-    # )
+    # # Rename cols
+    extend_rename_expected = extend_expected.rename(
+        {"simple_nesting.patient.id": "pid", "simple_nesting.patient.active": "pactive"}
+    )
+    select_extend_and_rename = select(
+        source, "simple_nesting -> {'pid': 'patient.id', 'pactive': 'patient.active'}"
+    )
+    assert_frame_equal(
+        select_extend_and_rename,  # type: ignore
+        extend_rename_expected,
+    )
 
-    # # Extend, and keep source col (+>)
-    # extend_keep_expected = pl.DataFrame(source.clone()["simple_nesting"])
-    # extend_keep_expected["simple_nesting.patient.id"] = source["simple_nesting"].apply(
-    #     lambda r: r["patient"]["id"] if isinstance(r, dict) else None
-    # )
-    # extend_keep_expected["simple_nesting.patient.active"] = source["simple_nesting"].apply(
-    #     lambda r: r["patient"]["active"] if isinstance(r, dict) else None
-    # )
-    # assert_frame_equal(  # type: ignore
-    #     select(source, "simple_nesting +> ['patient.id', 'patient.active']"), extend_keep_expected
-    # )
+    # Extend, and keep source col (+>)
+    extend_keep_expected = source.select(
+        pl.col("simple_nesting"),
+        pl.col("simple_nesting")
+        .struct.field("patient")
+        .struct.field("id")
+        .alias("simple_nesting.patient.id"),
+        pl.col("simple_nesting")
+        .struct.field("patient")
+        .struct.field("active")
+        .alias("simple_nesting.patient.active"),
+    )
+    select_extend_keep = select(source, "simple_nesting +> ['patient.id', 'patient.active']")
+    assert_frame_equal(select_extend_keep, extend_keep_expected)  # type: ignore
 
-    # # # Rename cols
-    # extend_keep_expected.rename(
-    #     columns={"simple_nesting.patient.id": "pid", "simple_nesting.patient.active": "pactive"},
-    #     inplace=True,
-    # )
-    # assert_frame_equal(  # type: ignore
-    #     select(source, "simple_nesting +> {'pid': patient.id, 'pactive': patient.active}"),
-    #     extend_keep_expected,
-    # )
+    # # Rename cols
+    extend_keep_rename_expected = extend_keep_expected.rename(
+        {"simple_nesting.patient.id": "pid", "simple_nesting.patient.active": "pactive"}
+    )
+    select_extend_keep_and_rename = select(
+        source, "simple_nesting +> {'pid': 'patient.id', 'pactive': 'patient.active'}"
+    )
+    assert_frame_equal(select_extend_keep_and_rename, extend_keep_rename_expected)  # type: ignore
 
 
 def test_outer_join(simple_dataframe: pl.DataFrame) -> None:
