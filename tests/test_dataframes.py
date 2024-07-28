@@ -6,7 +6,6 @@ from polars.testing import (
 )
 from result import Err
 
-import pydian.partials as p
 from pydian.dataframes import inner_join, outer_join, select, union
 
 
@@ -40,28 +39,25 @@ def test_select(simple_dataframe: pl.DataFrame) -> None:
     # assert_frame_equal(select(source, "*", apply=p.distinct()), source.drop_duplicates())  # type: ignore
 
 
-# def test_select_consume(simple_dataframe: pl.DataFrame) -> None:
-#     source = simple_dataframe
-#     source_two = deepcopy(simple_dataframe)
-#     source_ref = deepcopy(simple_dataframe)
+def test_select_consume(simple_dataframe: pl.DataFrame) -> None:
+    source = simple_dataframe
+    source_two = deepcopy(simple_dataframe)
+    source_ref = deepcopy(simple_dataframe)
 
-#     # TODO: figure out memory usage test of some sort
-#     # init_mem_usage_by_column = source.memory_usage(deep=True)
-#     assert_frame_equal(source[["a"]], select(source, "a", consume=True))  # type: ignore
-#     assert source.is_empty() == False
-#     assert "a" not in source.columns
-#     # assert sum(source.memory_usage(deep=True)) < sum(init_mem_usage_by_column)
+    assert_frame_equal(source.select("a"), select(source, "a", consume=True))  # type: ignore
+    assert source.is_empty() == False
+    assert "a" not in source.columns
 
-#     # Selecting from a missing column will not consume others specified (operation failed)
-#     assert isinstance(select(source, "a, b", consume=True), Err)
-#     assert "b" in source.columns
-#     assert source["b"].equals(source_ref["b"])
+    # Selecting from a missing column will not consume others specified (operation failed)
+    assert isinstance(select(source, "a, b", consume=True), Err)
+    assert "b" in source.columns
+    assert source["b"].equals(source_ref["b"])
 
-#     # Selecting multiple columns that are all valid
-#     assert source_two.equals(source_ref)
-#     assert_frame_equal(source_two[["b", "c"]], select(source_two, "b, c", consume=True))  # type: ignore
-#     assert "b" not in source_two.columns
-#     assert "c" not in source_two.columns
+    # Selecting multiple columns that are all valid
+    assert source_two.equals(source_ref)
+    assert_frame_equal(source_two[["b", "c"]], select(source_two, "b, c", consume=True))  # type: ignore
+    assert "b" not in source_two.columns
+    assert "c" not in source_two.columns
 
 
 def test_nested_select(nested_dataframe: pl.DataFrame) -> None:
