@@ -6,7 +6,7 @@ from polars.testing import (
 )
 from result import Err
 
-from pydian.dataframes import inner_join, left_join, select, union
+from pydian.dataframes import join, select, union
 
 
 def test_select(simple_dataframe: pl.DataFrame) -> None:
@@ -147,7 +147,7 @@ def test_nested_select(nested_dataframe: pl.DataFrame) -> None:
     assert_frame_equal(select_extend_keep_and_rename, extend_keep_rename_expected)  # type: ignore
 
 
-def test_outer_join(simple_dataframe: pl.DataFrame) -> None:
+def test_left_join(simple_dataframe: pl.DataFrame) -> None:
     source = simple_dataframe
 
     df_right = pl.DataFrame(
@@ -159,28 +159,28 @@ def test_outer_join(simple_dataframe: pl.DataFrame) -> None:
 
     # `None` cases
     assert isinstance(
-        left_join(source, df_right, on="d"), Err
+        join(source, df_right, how="left", on="d"), Err
     ), "Expected Err since `d` is not in right"
     assert isinstance(
-        left_join(source, df_right, on="e"), Err
+        join(source, df_right, how="left", on="e"), Err
     ), "Expected Err since `e` is not in left"
     assert isinstance(
-        left_join(source, df_right, on="f"), Err
+        join(source, df_right, how="left", on="f"), Err
     ), "Expected Err since `f` is not in either"
     assert isinstance(
-        left_join(source, df_right, on=["a", "f"]), Err
+        join(source, df_right, how="left", on=["a", "f"]), Err
     ), "Expected Err since `f` is not in either"
     assert isinstance(
-        left_join(source, df_right, on=["e", "f"]), Err
+        join(source, df_right, how="left", on=["e", "f"]), Err
     ), "Expected Err since `f` is not in either"
     assert isinstance(
-        left_join(source, df_right, on=["a", "e"]), Err
+        join(source, df_right, how="left", on=["a", "e"]), Err
     ), "Expected Err since `e` is not in left"
 
     # Basic join
     expected = deepcopy(source)
-    expected = expected.join(df_right, on="a", how="left")
-    result = left_join(source, df_right, on="a")
+    expected = expected.join(df_right, how="left", on="a", coalesce=True)
+    result = join(source, df_right, how="left", on="a")
 
     assert_frame_equal(result, expected)  # type: ignore
 
@@ -188,16 +188,8 @@ def test_outer_join(simple_dataframe: pl.DataFrame) -> None:
     df_empty_right = pl.DataFrame(
         {"a": pl.Series([], dtype=pl.Int64), "e": pl.Series([], dtype=pl.Int64)},
     )
-    result = left_join(source, df_empty_right, on="a")
+    result = join(source, df_empty_right, how="left", on="a")
     assert isinstance(result, Err), f"Expected Err -- resulting DataFrame is empty, got: {result}"
-
-    # # Test `consume=True`
-    # result = left_join(source, df_right, on="a", consume=True)
-    # assert expected.equals(result)
-    # assert df_right.equals(pl.DataFrame({
-    #     "a": [6, 7],
-    #     "e": ["baz", "qux"],
-    # }))
 
 
 def test_inner_join(simple_dataframe: pl.DataFrame) -> None:
@@ -215,18 +207,18 @@ def test_inner_join(simple_dataframe: pl.DataFrame) -> None:
     )
 
     # Perform the inner join
-    result = inner_join(df1, df2, on="b")
+    result = join(df1, df2, how="inner", on="b")
 
     # Check that the result matches the expected result
     assert_frame_equal(result, expected_result)  # type: ignore
 
     # Test with non-existent column
-    result = inner_join(df1, df2, on="non_existent_column")
+    result = join(df1, df2, how="inner", on="non_existent_column")
     assert isinstance(result, Err), f"Expected Err, but got {result}"
 
     # Test with empty result
     df1_empty = df1.head(0)
-    result = inner_join(df1_empty, df2, on="b")
+    result = join(df1_empty, df2, how="inner", on="b")
     assert isinstance(result, Err), f"Expected Err, but got {result}"
 
 
