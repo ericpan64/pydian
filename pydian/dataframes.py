@@ -1,6 +1,6 @@
 import ast
 import re
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Literal
 
 import polars as pl
 from result import Err
@@ -70,46 +70,29 @@ def select(
     return res
 
 
-def left_join(
-    source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
+def join(
+    source: pl.DataFrame,
+    second: pl.DataFrame,
+    how: Literal["inner", "left", "cross", "anti", "semi"],
+    on: str | list[str],
 ) -> pl.DataFrame | Err:
-    """
-    Applies a left join
-
-    A left join resulting in no change or an empty dataframe results in None
-    """
     try:
         _pre_merge_checks(source, second, on)
     except KeyError as e:
-        return Err(f"Failed pre-merge checks: {str(e)}")
+        return Err(f"Failed pre-merge checks for {how} join: {str(e)}")
 
-    res = source.join(second, how="left", on=on, join_nulls=False)
+    res = source.join(second, how=how, on=on, join_nulls=False, coalesce=True)
 
-    # If there were no matches, then return `Err`
-    #  Check for non-null cols after the left-join
-    matched = True
-    for col_name in second.columns:
-        matched = matched and res.filter(pl.col(col_name).is_not_null()).height > 0
-    if not matched:
-        return Err("No matching columns on left join")
+    if how == "left":
+        # If there were no matches, then return `Err`
+        #  Check for non-null cols after the left-join
+        matched = True
+        for col_name in second.columns:
+            matched = matched and res.filter(pl.col(col_name).is_not_null()).height > 0
+        if not matched:
+            return Err("No matching columns on left join")
 
     return res if not res.is_empty() else Err("Empty dataframe after left join")
-
-
-def inner_join(
-    source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
-) -> pl.DataFrame | Err:
-    """
-    Applies an inner join. Returns `None` if nothing was joined
-    """
-    try:
-        _pre_merge_checks(source, second, on)
-    except KeyError as e:
-        return Err(f"Failed pre-merge checks: {str(e)}")
-
-    res = source.join(second, how="inner", on=on)
-
-    return res if not res.is_empty() else Err("Empty dataframe after inner join")
 
 
 def union(
