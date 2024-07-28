@@ -66,7 +66,7 @@ def select(
     return res
 
 
-def outer_join(
+def left_join(
     source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
 ) -> pl.DataFrame | Err:
     """
