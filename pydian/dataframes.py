@@ -50,12 +50,12 @@ def select(
         res = _apply_nested_col_list(source, parsed_nested_col_list)
         # Post-processing checks
         if res.is_empty():
-            res = default
-        # if consume:
-        #     # TODO: way to consume just the rows that matched?
-        #     for col_name in parsed_col_list:
-        #         if col_name in source.columns:
-        #             source.drop_in_place(col_name)
+            raise pl.exceptions.ColumnNotFoundError
+        if consume:
+            # TODO: handle columns with query syntax -- make sure those aren't skipped
+            for col_name in parsed_col_list:
+                if col_name in source.columns:
+                    source.drop_in_place(col_name)
     except pl.exceptions.ColumnNotFoundError:
         res = default
 
@@ -98,7 +98,7 @@ def outer_join(
     #     if not matched_rows.is_empty():
     #         second.drop(index=matched_rows.index, inplace=True)  # type: ignore
 
-    return pl.DataFrame(res) if not res.is_empty() else Err("Empty dataframe")
+    return pl.DataFrame(res) if not res.is_empty() else Err("Empty dataframe after left join")
 
 
 def inner_join(
@@ -114,7 +114,7 @@ def inner_join(
 
     res = source.join(second, how="inner", on=on)
 
-    return res if not res.is_empty() else Err("Empty dataframe")
+    return res if not res.is_empty() else Err("Empty dataframe after inner join")
 
 
 def union(
