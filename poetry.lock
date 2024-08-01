@@ -1101,6 +1101,17 @@ files = [
 cffi = {version = "*", markers = "implementation_name == \"pypy\""}
 
 [[package]]
+name = "result"
+version = "0.17.0"
+description = "A Rust-like result type for Python"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "result-0.17.0-py3-none-any.whl", hash = "sha256:49fd668b4951ad15800b8ccefd98b6b94effc789607e19c65064b775570933e8"},
+    {file = "result-0.17.0.tar.gz", hash = "sha256:b73da420c0cb1a3bf741dbd41ff96dedafaad6a1b3ef437a9e33e380bb0d91cf"},
+]
+
+[[package]]
 name = "six"
 version = "1.16.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -1224,4 +1235,4 @@ dataframes = ["polars"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.13"
-content-hash = "e04a2233fa87e6014e3627cb2a1eaf8928395bd200b1d5c12a9fc7b1b202b039"
+content-hash = "267625cad6d4c1f5741a9b7f487e53d2f861ed4d8e62ba5b0cb6d537ac7db6ae"
