@@ -1,221 +1,177 @@
-# import ast
+import ast
 import re
-
-# from collections import defaultdict
-from collections.abc import Iterable
-from typing import Any
+from typing import Any, Callable, Iterable, Literal
 
 import polars as pl
 from result import Err
 
-import pydian.partials as p
-
-from .lib.types import ApplyFunc, ConditionalCheck
-
-REGEX_COMMA_EXCLUDE_BRACKETS = r",(?![^{}]*\})"
+COMMAS_OUTSIDE_OF_BRACKETS = r",(?![^{}\[\]]*[}\]])"
+COLON_OUTSIDE_OF_BRACKETS = r":(?![^{]*})"
+PERIOD_UP_TO_NEXT_CLOSE_PARENS = r"\.(.*?\))"
 
 
 def select(
     source: pl.DataFrame,
     key: str,
-    default: Any = Err("Default Err: key didn't match"),
-    apply: ApplyFunc | Iterable[ApplyFunc]
-    # | dict[str, ApplyFunc | Iterable[ApplyFunc] | Any]
-    | None = None,
-    only_if: ConditionalCheck | None = None,
     consume: bool = False,
+    rename: dict[str, str] | Callable[[str], str] | None = None,
 ) -> pl.DataFrame | Err:
     """
-    Gets a subset of a DataFrame. The following conditions apply:
-    1. Columns must have names, otherwise an exception will be raised
-    2. Index names will be ignored: a row is identified by its 0-indexed position
-
-    PURE FUNCTION: `source` is not modified. This makes memory management important
+    Selects a subset of a DataFrame. `key` has some convenience functions
 
     `key` notes:
-    - Strings represent columns, int represent rows
-    - _Order matters_
+    - "*" -- all columns
+    - "a, b, c" -- columns a, b, c (in-order)
+    - "a, b : c > 3" -- columns a, b where column c > 3
+    - "* : c != 3" -- all columns where column c != 3
+    - "dict_col -> [a, b, c]" -- "dict_col.a, dict_col.b, dict_col.c"
+    - "dict_col +> [a, b, c]" -- "dict_col, dict_col -> [a, b, c]"
+    - "dict_col -> {"A": a, "B": b}" --"dict_col.a, dict_col.b" and rename `a -> A, b -> B`
+    - "dict_col +> {"A": a, "B": b}" -- "dict_col, dict_col -> {"A": a, "B": b}"
 
+    `consume` attempts to drop columns that matched in the `select` from the source dataframe
 
-    - `consume`: Remove the original data from the dataframe from memory
+    `rename` is the standard Polars API call and is called at the very end
     """
     _check_assumptions(source)
 
-    res = _nested_select(source, key, default, consume)
+    # Extract query from key (if present)
+    key = key.replace(" ", "")
+    query: pl.Expr | None = None
+    if re.search(COLON_OUTSIDE_OF_BRACKETS, key):
+        key, query_str = re.split(COLON_OUTSIDE_OF_BRACKETS, key, maxsplit=1)
+        query_str = query_str.strip("[]")
+        query = _convert_to_polars_filter(query_str)
 
-    if not isinstance(res, Err) and only_if:
-        res = res if only_if(res) else Err("`only_if` check did not pass")
+    # Extract columns from syntax
+    parsed_col_list = re.split(COMMAS_OUTSIDE_OF_BRACKETS, key)
+    parsed_nested_col_list = _generate_nesting_list(parsed_col_list)
 
-    if not isinstance(res, Err) and apply:
-        if isinstance(apply, dict) and isinstance(res, pl.DataFrame):
-            # Each key is a column name
-            #  and each value contains a list of operations
-            for k, v in apply.items():
-                # For each column, apply the list of operations (v) to each value
-                res[k] = res[k].apply(p.do(_try_apply, v, key))
-        else:
-            res = _try_apply(res, apply, key)  # type: ignore
+    # Grab correct subset/slice of the dataframe
+    try:
+        if isinstance(query, pl.Expr):
+            source = source.filter(query)
+        res = _apply_nested_col_list(source, parsed_nested_col_list)
+        # Post-processing checks
+        if res.is_empty():
+            raise pl.exceptions.ColumnNotFoundError
+        if consume:
+            # TODO: handle columns with query syntax -- make sure those aren't skipped
+            for col_name in parsed_col_list:
+                if col_name in source.columns:
+                    source.drop_in_place(col_name)
+    except pl.exceptions.ColumnNotFoundError:
+        return Err("Default Err: `select` key didn't match")
+
+    # TODO: Consider supporting regex search and pattern replacements (e.g. prefix_* -> new_prefix_*)
+    if rename and isinstance(res, pl.DataFrame):
+        res = res.rename(rename)
 
     return res
 
 
-def left_join(first: pl.DataFrame, second: pl.DataFrame, on: str | list[str]) -> pl.DataFrame | Err:
-    """
-    Applies a left join
-
-    A left join resulting in no change or an empty database results in None
-    """
+def join(
+    source: pl.DataFrame,
+    second: pl.DataFrame,
+    how: Literal["inner", "left", "cross", "anti", "semi"],
+    on: str | list[str],
+) -> pl.DataFrame | Err:
     try:
-        _pre_merge_checks(first, second, on)
+        _pre_merge_checks(source, second, on)
     except KeyError as e:
-        return Err(f"Failed pre-merge checks: {str(e)}")
+        return Err(f"Failed pre-merge checks for {how} join: {str(e)}")
 
-    res = first.join(second, how="left", on=on, join_nulls=False)
+    res = source.join(second, how=how, on=on, join_nulls=False, coalesce=True)
 
-    # If there were no matches, then return `Err`
-    #  Check for non-null cols after the left-join
-    matched = True
-    for cname in second.columns:
-        matched = matched and res.filter(pl.col(cname).is_not_null()).height > 0
-    if not matched:
-        return Err("No matching columns on left join")
+    if how == "left":
+        # If there were no matches, then return `Err`
+        #  Check for non-null cols after the left-join
+        matched = True
+        for col_name in second.columns:
+            matched = matched and res.filter(pl.col(col_name).is_not_null()).height > 0
+        if not matched:
+            return Err("No matching columns on left join")
 
-    # # Only consume if there was a change
-    # if consume:
-    #     # Only drop rows that were included in the left join
-    #     matched_rows = select(res, f"{','.join(on)} ~ [_merge == 'both']")  # type: ignore
-    #     # TODO: making assumption on indices here, is this a problem?
-    #     # TODO: ^Yes that was a problem, good intuition! Have to match on the _value_
-    #     if not matched_rows.is_empty():
-    #         second.drop(index=matched_rows.index, inplace=True)  # type: ignore
-
-    return pl.DataFrame(res) if not res.is_empty() else Err("Empty dataframe")
+    return res if not res.is_empty() else Err("Empty dataframe after left join")
 
 
-def inner_join(
-    first: pl.DataFrame, second: pl.DataFrame, on: str | list[str]
+def union(
+    source: pl.DataFrame,
+    rows=pl.DataFrame | list[dict[str, Any]],
+    na_default: Any = None,
 ) -> pl.DataFrame | Err:
     """
-    Applies an inner join. Returns `None` if nothing was joined
+    Inserts rows into the end of the DataFrame
+
+    For a row, if a value is not specified it will be filled with the specified default
+
+    If the union operation cannot be done (e.g. incompatible columns), returns `Err`
     """
+    if isinstance(rows, list):
+        rows = pl.DataFrame(rows)
+
+    # Ensure all columns in `into` are present in `rows`
+    for col in source.columns:
+        if col not in rows.columns:
+            rows = rows.with_columns(pl.lit(na_default).alias(col))
+
+    # Ensure all columns in `rows` are present in `into`
+    for col in rows.columns:
+        if col not in source.columns:
+            source = source.with_columns(pl.lit(na_default).alias(col))
+
     try:
-        _pre_merge_checks(first, second, on)
-    except KeyError as e:
-        return Err(f"Failed pre-merge checks: {str(e)}")
+        res = pl.concat([source, rows])
+    except Exception as e:
+        return Err(f"Error when unioning: {str(e)}")
 
-    res = first.join(second, how="inner", on=on)
-
-    return res if not res.is_empty() else Err("Empty dataframe")
+    return res
 
 
-# def insert(
-#     into: pl.DataFrame,
-#     rows=pl.DataFrame | list[dict[str, Any]],
-#     na_default: Any = None,
-#     consume: bool = False,
-# ) -> pl.DataFrame | Err:
-#     """
-#     Inserts rows into the end of the DataFrame
+def group_by(source: pl.DataFrame, agg_str: str, keep_order: bool = True) -> pl.DataFrame | Err:
+    """
+    Allows the following shorthands for `group_by`:
+    - Use comma-delimited col names
+    - Specify aggregators after `->` using list or dict syntax
+        - For no aggregator specified, default to `.all()`
 
-#     For a row, if a value is not specified it will be filled with the specified default
+    Examples:
+    - `"a"` -- `group_by('a').all()`
+    - `"a, b"` -- `group_by(['a', 'b']).all()`
+    - `"a -> ['*'.len()]"` -- `group_by('a').len()`
+    - `"a -> ['b'.mean()]"` -- `group_by('a').agg([pl.col('b').mean()]))
+    - `"a -> ['*'.mean()]"` -- `group_by('a').mean()`
 
-#     If the insert operation cannot be done (e.g. incompatible columns), returns `None`
-#     """
-#     if isinstance(rows, list):
-#         rows = pl.DataFrame(rows)
-#     rows.fillna(na_default, inplace=True)
-#     try:
-#         _check_assumptions([into, rows])
-#         if not set(into.columns).intersection(set(rows.columns)):
-#             raise ValueError("Input rows have no overlapping columns, skip insert")
-#         res = pl.concat([into, rows], ignore_index=True)
-#         if consume:
-#             # Drop all of the inserted rows
-#             rows.drop(index=rows.index, inplace=True)
-#     except BaseException as e:
-#         res = Err(f"Error when inserting: {str(e)}")
-#     return res
+    Supported aggregation functions:
+    - `len()`
+    - `sum()`, `mean()`
+    - `max()`, `min()`, `median()`
+    - `std()`, `var()`
+    """
+    # Parse `agg` str into halfs
+    agg_str = agg_str.replace(" ", "")
+    query_parts = agg_str.split("->")
+    res = source
+    if len(query_parts) == 1:
+        # Default to using `.all()` aggregator
+        col_names = agg_str.split(",")
+        res = source.group_by(col_names, maintain_order=keep_order).all()
+    elif len(query_parts) == 2:
+        col_names = query_parts[0].split(",")
+        res = source.group_by(col_names, maintain_order=keep_order)  # type: ignore
+        agg_list_str = query_parts[1].removeprefix("[").removesuffix("]")
+        agg_expr_list = _agg_list_to_polars_expr(agg_list_str)
+        if isinstance(agg_expr_list, Err):
+            return agg_expr_list
+        else:
+            res = res.agg(agg_expr_list)  # type: ignore
+    else:
+        raise ValueError("Groupby aggregation string contained too many `->` characters")
 
+    if res.is_empty():
+        return Err("Dataframe after `group_by` is empty")
 
-# def alter(
-#     target: pl.DataFrame,
-#     drop_cols: str | list[str] | None = None,
-#     overwrite_cols: dict[str, pl.Series | list[Any]] | None = None,
-#     add_cols: dict[str | tuple[str, int], pl.Series | list[Any]] | None = None,
-#     na_default: Any = None,
-#     consume: bool = False,
-# ) -> pl.DataFrame | None:
-#     """
-#     Returns a new copy of a modified database, or `None` if modifications aren't done. E.g.:
-#     - If the column already exists when trying to add a new one
-#     - If the length of a new column is larger than the target dataframe
-#     - ... etc.
-
-#     Operations (in-order):
-#     - `drop_cols` should be comma-delimited or provide the list of columns
-#     - `overwrite_cols` should replace existing columns with provided data (up to that point)
-#     - `add_cols` should map the new column name to initial data (missing values will use `na_default`)
-
-#     # TODO: add "reorder", e.g. {"colName": newPositionInt, "colName1": "<-colName2", "colName3": "colName4->", "colName5": "<~>colName6"}
-#     # TODO: add "extract", e.g. `->` and `+>` conventions from `select`
-#     """
-#     _check_assumptions(target)
-#     res = target
-#     n_rows, _ = res.shape
-#     if drop_cols:
-#         if isinstance(drop_cols, str):
-#             drop_cols = drop_cols.replace(" ", "").split(",")
-#         res = res.drop(drop_cols)
-#     if overwrite_cols:
-#         if not isinstance(overwrite_cols, dict):
-#             raise ValueError(f"`overwrite_cols` should be a dict, got: {type(add_cols)}")
-#         for cname, cdata in overwrite_cols.items():
-#             # Expect column to be there
-#             if cname not in target.columns:
-#                 return None
-#             # Expect columns smaller than existing df
-#             if len(cdata) > n_rows:
-#                 return None
-#             match cdata:
-#                 case list():
-#                     n_new_rows = len(cdata)
-#                     res[0:n_new_rows, cname] = cdata
-#                 case pl.Series():
-#                     # Drop old column, then reinsert to  prev spot
-#                     # NOTE: Assumes pl.Series should be exact -- e.g. including name
-#                     cidx = res.columns.index(cname)
-#                     res.drop(columns=[cname])
-#                     res.insert_column(cidx, cdata)
-#     if add_cols:
-#         if not isinstance(add_cols, dict):
-#             raise ValueError(f"`add_cols` should be a dict, got: {type(add_cols)}")
-#         for cname, cdata in add_cols.items():  # type: ignore
-#             # Default to end if adding
-#             new_idx = len(res.columns)
-#             if isinstance(cname, tuple):
-#                 cname, new_idx = cname
-#             # Prevent overwriting an existing column on accident
-#             if cname in target.columns:
-#                 return None
-#             # Expect columns smaller than existing df
-#             if len(cdata) > n_rows:
-#                 return None
-#             match cdata:
-#                 case list():
-#                     if len(cdata) < n_rows:
-#                         cdata.extend([na_default] * (n_rows - len(cdata)))
-#                     res[cname] = cdata
-#                 case pl.Series():
-#                     res.insert(new_idx, cdata.name, cdata)
-#     # Check that something happened, otherwise return Err
-#     #  (also checks that source wasn't mutated)
-#     # Don't consume if no changes are made
-#     # if res == target:
-#     #     res = Err("No modifications made")
-#     if consume:
-#         target.drop(columns=target.columns, inplace=True)
-
-#     return res
+    return res
 
 
 def _check_assumptions(source: pl.DataFrame | Iterable[pl.DataFrame]) -> None:
@@ -228,201 +184,308 @@ def _check_assumptions(source: pl.DataFrame | Iterable[pl.DataFrame]) -> None:
             raise ValueError(f"Column headers need to be `str`, got: {col_types}")
 
 
-def _try_apply(source: Any, apply: ApplyFunc | Iterable[ApplyFunc], key: str) -> Any:
-    res = source
-    if not isinstance(apply, Iterable):
-        apply = (apply,)
-    for fn in apply:
-        try:
-            res = fn(res)
-        except Exception as e:
-            raise RuntimeError(f"`apply` call {fn} failed for value: {res} with key: {key}, {e}")
-        if res is None:
-            break
-    return res
-
-
-def _pre_merge_checks(first: pl.DataFrame, second: pl.DataFrame, on: str | list[str]) -> None:
+def _pre_merge_checks(source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]) -> None:
     # If _any_ of the provided indices aren't there, return `None`
-    _check_assumptions([first, second])
+    _check_assumptions([source, second])
     if isinstance(on, str):
         on = [on]
     for c in on:
-        if not (c in first.columns and c in second.columns):
+        if not (c in source.columns and c in second.columns):
             raise KeyError(f"Proposed key {c} is not in either column!")
 
 
-# TODO: This would be a really good exercise! Would need to:
-#   1. Identify the types of expressions in Polars
-#   2. Map the expressions to the supported ones in Python's ast lib
-#   3. Walk through the tree and compose the expression
-# def _convert_to_polars_filter(query: str) -> pl.Expr:
-#     # Make an AST
-#     tree = ast.parse(query)
-#     # ...
+class PythonExprToPolarsExprVisitor(ast.NodeVisitor):
+    def visit_BoolOp(self, node):
+        if isinstance(node.op, ast.And):
+            expr = self.visit(node.values[0])
+            for value in node.values[1:]:
+                expr = expr & self.visit(value)
+        elif isinstance(node.op, ast.Or):
+            expr = self.visit(node.values[0])
+            for value in node.values[1:]:
+                expr = expr | self.visit(value)
+        return expr
+
+    def visit_Compare(self, node):
+        left = self.visit(node.left)
+        comparisons = []
+        for op, comparator in zip(node.ops, node.comparators):
+            right = self.visit(comparator)
+            if isinstance(op, ast.Eq):
+                comparisons.append(left == right)
+            elif isinstance(op, ast.Gt):
+                comparisons.append(left > right)
+            elif isinstance(op, ast.Lt):
+                comparisons.append(left < right)
+            elif isinstance(op, ast.GtE):
+                comparisons.append(left >= right)
+            elif isinstance(op, ast.LtE):
+                comparisons.append(left <= right)
+            elif isinstance(op, ast.NotEq):
+                comparisons.append(left != right)
+        expr = comparisons[0]
+        for comparison in comparisons[1:]:
+            expr = expr & comparison
+        return expr
+
+    def visit_BinOp(self, node):
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        elif isinstance(node.op, ast.Sub):
+            return left - right
+        elif isinstance(node.op, ast.Mult):
+            return left * right
+        elif isinstance(node.op, ast.Div):
+            return left / right
+        elif isinstance(node.op, ast.Mod):
+            return left % right
+
+    def visit_Name(self, node):
+        return pl.col(node.id)
+
+    def visit_Constant(self, node):
+        return pl.lit(node.value)
+
+    def visit(self, node):
+        return super().visit(node)
 
 
-def _nested_select(
-    source: pl.DataFrame, key: str, default: Any, consume: bool
-) -> pl.DataFrame | Any:
-    res = None
+def _convert_to_polars_filter(filter_string: str) -> pl.Expr:
+    tree = ast.parse(filter_string, mode="eval")
+    visitor = PythonExprToPolarsExprVisitor()
+    return visitor.visit(tree.body)
 
-    # Extract query from key (if present)
-    key = key.replace(" ", "")
 
-    # TODO: add back querying syntax
-    # query = None
-    # if "~" in key:
-    #     key, query_str = key.split("~")
-    #     query_str = query_str.removeprefix("[").removesuffix("]")
-    #     query = _convert_to_polars_filter(query_str)
+def _apply_nested_col_list(
+    source: pl.DataFrame,
+    parsed_nested_col_list: list[str | tuple[bool, list[str] | dict[str, str]]],
+) -> pl.DataFrame:
+    """
+    Completes handling of the `.`, `->`, `+>` operators which is the `parsed_nested_col_list`.
+      Converts the string expressions into corresponding Polars expression to apply at the end
 
-    # Extract columns from syntax
-    # NOTE: `parsed_col_list` starts with exact user-provided string, then
-    #        gets updated in `_generate_nesting_list` to exclude nesting (so matches colname)
-    parsed_col_list = re.split(REGEX_COMMA_EXCLUDE_BRACKETS, key)
-    # nesting_list = _generate_nesting_list(parsed_col_list)
+    The incoming "parsed_nested_col_list" looks something like:
+        ["some_col", "b", "c.d", (True, ["b", "c.d"]), (False, {"new_name": "c.d"}) ...]
+    """
 
-    # Handle "*" case
-    # TODO: Handle "*" with other items, e.g. `"*, a -> {b, c}`?
-    if parsed_col_list == ["*"]:
-        parsed_col_list = source.columns
+    # Handle "*" case -- replace each instance with `source.columns`
+    if "*" in parsed_nested_col_list:
+        # Find indices of all occurrences of "*"
+        star_idx_list = [i for i, x in enumerate(parsed_nested_col_list) if x == "*"]
+        # Replace each "*" with the replacement values
+        for idx in reversed(star_idx_list):
+            parsed_nested_col_list[idx : idx + 1] = source.columns
 
-    try:
-        # res = source.filter(query)[parsed_col_list] if query else source[parsed_col_list]
-        res = source[parsed_col_list]
-        # res = _apply_nesting_list(res, nesting_list, parsed_col_list)
-        # Post-processing checks
-        if res.is_empty():
-            res = default
-        elif consume:
-            # TODO: way to consume just the rows that matched?
-            for cname in parsed_col_list:
-                if cname in source.columns:
-                    source.drop_in_place(cname)
-    except pl.exceptions.ColumnNotFoundError:
-        res = default
+    # For each column specified, convert it to the corresponding Polars expression.
+    #   Apply the expression at the end to get the final result
+    res = source
+    expr_list = []
+    for i, nested_col in enumerate(parsed_nested_col_list):
+        # Single-column case (e.g. "col_name")
+        if isinstance(nested_col, str):
+            nesting_expr = _nesting_to_polars_expr(nested_col)
+            expr_list.append(nesting_expr)
+        # # Expansion case (`->` or `+>`)
+        elif isinstance(nested_col, tuple):
+            keep_col, col_obj = nested_col
+            # keep column if specified
+            if keep_col:
+                expr_list.append(pl.col(res.columns[i]))
+            if isinstance(col_obj, list):
+                for new_nesting in col_obj:
+                    nesting_expr = _nesting_to_polars_expr(new_nesting)
+                    expr_list.append(nesting_expr)
+            # renaming case
+            elif isinstance(col_obj, dict):
+                for new_name, new_nesting in col_obj.items():
+                    nesting_expr = _nesting_to_polars_expr(new_nesting, new_name)
+                    expr_list.append(nesting_expr)
+    if expr_list:
+        res = res.select(expr_list)
+    return res
+
+
+def _nesting_to_polars_expr(nested_col: str, new_name: str | None = None) -> pl.Expr:
+    """
+    Converts something like:
+        `a.b.c[0].d`
+      into:
+        `pl.col("a").struct.field("b").struct.field("c").list[0].struct.field("d")`
+    """
+    nesting_list = nested_col.split(".", maxsplit=1)
+
+    res = pl.col(nesting_list[0])
+    if len(nesting_list) > 1:
+        for item in nesting_list[1].split("."):
+            # Handle brackets -- grab value (assume just integer for now)
+            list_idx: str | None = None
+            if "[" in item:
+                lbracket_idx = item.index("[")
+                list_idx = item[lbracket_idx + 1 : item.index("]")]
+                item = item[:lbracket_idx]  # Remove bracket from original str
+            res = res.struct.field(item)
+            if list_idx is not None:
+                # TODO: Handle more than just single index, e.g. handle slices?
+                res = res.list[int(list_idx)]
+
+    if new_name:
+        res = res.alias(new_name)
+    else:
+        res = res.alias(nested_col)
 
     return res
 
 
-# def _apply_nesting_list(
-#     source: pl.DataFrame,
-#     nesting_list: list[str | tuple[bool, list[str] | dict[str, str]] | None],
-#     parsed_col_list: list[str],
-# ) -> pl.DataFrame:
-#     # Prevents `SettingWithCopyWarning`, ref: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
-#     # TODO: does this hog too much extra memory?
-#     res = source.clone()
-
-#     # Apply nesting if applicable
-#     col_idx_to_del: list[int] = []
-#     col_to_add: defaultdict[int, list[tuple[bool, pl.Series]]] = defaultdict(list)
-#     if any(nesting_list):
-#         for i, nesting in enumerate(nesting_list):  # type: ignore
-#             cname = parsed_col_list[i]
-#             match nesting:
-#                 case str():
-#                     s: pl.Series = res[cname].apply(p.get(nesting))
-#                     s.name = f"{cname}.{nesting}"
-#                     res = alter(res, overwrite_cols={cname: s})
-#                 case tuple():
-#                     keep_col, cobj = nesting
-#                     if not keep_col:
-#                         col_idx_to_del.append(i)
-#                     if isinstance(cobj, list):
-#                         for nkey in cobj:
-#                             s: pl.Series = res.loc[:, cname].apply(p.get(nkey))  # type: ignore
-#                             s.name = f"{cname}.{nkey}"
-#                             col_to_add[i].append((keep_col, s))
-#                     elif isinstance(cobj, dict):
-#                         for new_name, nkey in cobj.items():
-#                             s: pl.Series = res.loc[:, cname].apply(p.get(nkey))  # type: ignore
-#                             s.name = new_name
-#                             col_to_add[i].append((keep_col, s))
-#                 case None:
-#                     continue
-
-#     # Do `tuple` case procecssing
-#     if col_idx_to_del:
-#         res.drop(res.columns[col_idx_to_del])
-#     if col_to_add:
-#         bump_idx = 0
-#         for idx, vlist in col_to_add.items():
-#             # FYI: inserts at the front, so add extra 1 if we kept the original column
-#             for kcbool, s in vlist:
-#                 res.insert(idx + bump_idx + int(kcbool), s.name, s.values)
-#                 bump_idx += 1
-
-#     return res
-
-
-# def _generate_nesting_list(
-#     parsed_col_list: list[str],
-# ) -> list[str | tuple[bool, list[str] | dict[str, str]] | None]:
-#     """
-#     Return whether a specific column index should get nesting logic applied
-
-#     For each column, check if:
-#       1. Column should be extracted and consumed (`->`)
-#       2. Column should be extracted and kept (`+>`)
-#       3. Column should be nested into and consumed (exactly once)
-
-#     Order matters!
-
-#     Not a pure function -- assume `parsed_col_list` might be modified
-#     """
-#     nesting_list: list[str | tuple[bool, list[str] | dict[str, str]] | None] = []
-#     # for i, c in enumerate(parsed_col_list):
-#     for i, c in enumerate(parsed_col_list):
-#         # 1. extract, and consume original
-#         # 2. extract, and keep original
-#         if ("->" in c) or ("+>" in c):
-#             keep_col = "+>" in c
-#             splitter = "+>" if keep_col else "->"
-#             cname, content = c.split(splitter)
-#             cobj = _extract_list_or_dict(content)
-#             if cobj:
-#                 # NOTE: Remove the nesting from `parsed_col_list` for later processing
-#                 parsed_col_list[i] = cname
-#                 nesting_list.append((keep_col, cobj))
-#             else:
-#                 nesting_list.append(None)
-#         # 3. nesting, consume and replace
-#         elif "." in c:
-#             cname, nesting = c.split(".", maxsplit=1)
-#             # NOTE: Remove the nesting from `parsed_col_list` for later processing
-#             parsed_col_list[i] = cname
-#             nesting_list.append(nesting)
-#         else:
-#             nesting_list.append(None)
-#     return nesting_list
-
-
-def _extract_list_or_dict(s: str) -> list[str] | dict[str, str] | None:
+def _generate_nesting_list(
+    parsed_col_list: list[str],
+) -> list[str | tuple[bool, list[str] | dict[str, str]]]:
     """
-    Given a string in brackets, tries to extract into set or dict, else None.
+    Return whether a specific column index should get nesting logic applied
+
+    Given `parsed_col_list` as follows:
+        ['c.d', 'reg_col', "some_json_col -> ['b', 'c.d']", "some_json_col +> {'new_name': 'c.d'}"]
+      The resulting "parsed_nested_col_list" looks something like -- a tuple of `(keep_col, nesting)`:
+        ['c.d', 'reg_col', (False, ['some_json_col.b', 'some_json_col.c.d']}), (True, {'new_name': 'some_json_col.c.d'})]
+      A more complex nesting will index-into different values (set: one -> one/many new cols)
+        and possibly rename them as well (dict: one -> one/many new cols with new names)
+
+    For each column, check if:
+      1. Column should be extracted and consumed (`->`)
+      2. Column should be extracted and kept (`+>`)
+      3. Column should be nested into and consumed (any other str and supporting `.` syntax)
     """
-    # Check if the string starts and ends with curly braces
-    if not (s.startswith("{") and s.endswith("}")):
+    parsed_nested_col_list: list[str | tuple[bool, list[str] | dict[str, str]]] = []
+
+    for col_name in parsed_col_list:
+        # 1. extract, and consume original
+        # 2. extract, and keep original
+        if ("->" in col_name) or ("+>" in col_name):
+            keep_col = "+>" in col_name
+            col_name, content = col_name.split("+>" if keep_col else "->")
+            col_obj = _extract_list_or_dict(content, add_prefix=col_name)
+            if col_obj:
+                parsed_nested_col_list.append((keep_col, col_obj))
+            else:
+                raise RuntimeError("Error processing `->` or `+>` syntax")
+        # 3. regular string nesting
+        else:
+            parsed_nested_col_list.append(col_name)
+    return parsed_nested_col_list
+
+
+def _extract_list_or_dict(
+    s: str, add_prefix: str | None = None
+) -> list[str] | dict[str, str] | None:
+    """
+    Tries to convert a string into a list[str] or dict[str, str]
+
+    If `add_prefix` is specified, then adds the prefix to list/dict values (not keys)
+    """
+    try:
+        # Clean string a bit
+        s = s.replace(";", "").replace("(", "<fn").replace(")", ">")
+        res = ast.literal_eval(s)
+        if not (isinstance(res, list) or isinstance(res, dict)):
+            raise ValueError("Need to specify a list or dict after `->` or `+>`")
+        # Add a prefix to list/dict values if specified
+        if add_prefix and isinstance(res, list):
+            res = [f"{add_prefix}.{s}" for s in res]
+        elif add_prefix and isinstance(res, dict):
+            res = {k: f"{add_prefix}.{v}" for k, v in res.items()}
+        return res
+    except (ValueError, SyntaxError):
         return None
-    # Remove the curly braces and strip whitespace
-    content = s[1:-1].strip()
-    res: list[str] | dict[str, str] | None = None
-    # Determine if the string is a dictionary (contains ':') or a set
-    if ":" in content:
-        # Handle dictionary
-        try:
-            # Split the string into key-value pairs
-            items = content.split(",")
-            dict_result = {}
-            for item in items:
-                key, value = item.split(":")
-                dict_result[key.strip().strip("'").strip('"')] = value.strip().strip("'").strip('"')
-            res = dict_result
-        except ValueError:
-            res = None
-    else:
-        # Handle set (return as a list to preserve ordering)
-        res = [x.strip().strip("'").strip('"') for x in content.split(",")]
+
+
+def _agg_list_to_polars_expr(agg_list_str: str) -> list[pl.Expr] | Err:
+    """
+    Takes something like:
+        - "a -> ['*'.len()]"
+        - "a -> ['b'.mean()]"
+        - "a -> ['b'.mean(), 'c'.median()]
+      and turns it into:
+        - [pl.col('*').len()]
+        - [pl.col('b').mean()]
+        - [pl.col('b').mean(), pl.col('c').median()]
+
+    Supported aggregation functions:
+    - `len()`
+    - `sum()`, `mean()`
+    - `max()`, `min()`, `median()`
+    - `std()`, `var()`
+    """
+
+    # Split into cols and aggregators
+    # First split by commas to get each individual part
+    # For each part:
+    #  - Assume if `()` is present, it's an aggregator for the last noted col (in quotes)
+    #  - Assume the first item must be a col name, and the first character must be a quote
+    agg_cols = agg_list_str.split(",")
+    agg_parts = []
+    for col in agg_cols:
+        col_parts = re.split(PERIOD_UP_TO_NEXT_CLOSE_PARENS, col)
+        agg_parts.extend(col_parts)
+    quote = agg_parts[0][0]
+    if quote not in {'"', "'"}:
+        return Err(f"Need to have column expressions in quotes, got `{agg_parts[0]}`")
+    lexed_agg_list_str = str([p.strip(quote) for p in agg_parts if p != ""])
+    parsed_agg_list_str = _extract_list_or_dict(
+        lexed_agg_list_str
+    )  # NOTE: this fn replaces `()` from the string with `<fn>`
+    if parsed_agg_list_str is None:
+        return Err(f"Could not parse expression `{agg_list_str}`")
+
+    # Apply the appropriate aggregation function
+    res = []
+    curr_expr: pl.Expr | None = None
+    for agg_part in parsed_agg_list_str:
+        if not agg_part.endswith("<fn>"):
+            # Assume default `all()` if nothing specified
+            if curr_expr is not None:
+                res.append(curr_expr.all())
+            # Set-up next aggregator
+            curr_expr = pl.col(agg_part)
+        else:
+            # NOTE: each of these aggregators will be considered "terminal". No chaining currently
+            #   ... also no logic-checking / correcting. Just handling as-is!
+            if not isinstance(curr_expr, pl.Expr):
+                return Err(
+                    f"Error when handling aggregation expression, tried to aggregate incorrect type: {curr_expr}"
+                )
+            match agg_part:
+                case "len<fn>":
+                    curr_expr = curr_expr.len()
+                case "sum<fn>":
+                    curr_expr = curr_expr.sum()
+                case "mean<fn>":
+                    curr_expr = curr_expr.mean()
+                case "max<fn>":
+                    curr_expr = curr_expr.max()
+                case "min<fn>":
+                    curr_expr = curr_expr.min()
+                case "median<fn>":
+                    curr_expr = curr_expr.median()
+                case "std<fn>":
+                    curr_expr = curr_expr.std()
+                case "var<fn>":
+                    curr_expr = curr_expr.var()  # .alias(f"{curr_expr.meta.output_name()}_sum")
+                case _:
+                    return Err(f"Got unsupported aggregator: {agg_part}")
+            # Rename column based on the aggregator
+            #   Handle the `*` case by checking for root name
+            agg_suffix = agg_part.removesuffix("<fn>")
+            if root_names := curr_expr.meta.root_names():
+                curr_expr = curr_expr.alias(f"{root_names[0]}_{agg_suffix}")
+            else:
+                # The `*` case -- add a suffix
+                curr_expr = curr_expr.name.suffix(f"_{agg_suffix}")
+            res.append(curr_expr)
+            curr_expr = None
+
+    # Handle last item case (e.g. `b` for "a, b")
+    if curr_expr is not None:
+        res.append(curr_expr.all())
+
     return res

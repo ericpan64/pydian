@@ -45,7 +45,8 @@ def get(
 
     if source:
         res = _nested_get(source, key, default)
-        _enforce_strict(res, strict, key, source)
+        if strict:
+            _enforce_strict(res, strict, key, source)
     else:
         res = default
 
@@ -54,7 +55,8 @@ def get(
 
     if res is not None and only_if:
         res = res if only_if(res) else None
-        _enforce_strict(res, strict, key, source)
+        if strict:
+            _enforce_strict(res, strict, key, source)
 
     if res is not None and apply:
         if not isinstance(apply, Iterable):
@@ -62,7 +64,8 @@ def get(
         for fn in apply:
             try:
                 res = fn(res)
-                _enforce_strict(res, strict, key, source)
+                if strict:
+                    _enforce_strict(res, strict, key, source)
             except Exception as e:
                 raise RuntimeError(f"`apply` call {fn} failed for value: {res} at key: {key}, {e}")
             if res is None:
