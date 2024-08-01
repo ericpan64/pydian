@@ -1,9 +1,11 @@
 # Contribution Guide
 
 ## Running Tests
-First: `poetry install && poetry shell`
+First: `poetry install -E dataframes && poetry shell`
 
 Then at the top level dir: `pytest`, or `pytest --cov` to view code coverage
+
+> Note: to install the dataframes module, the `-E dataframes` flag is used for the extra `dataframes` section of `pyproject.toml`
 
 ## Code Formatting
 This repo currently uses the following dev tools:
@@ -23,7 +25,7 @@ Thank you for contributing and working to keep things organized!
 ### Publishing to PyPI
 
 ```bash
-poetry publish -u <username> -p <password>
+poetry publish -u __token__ -p <token starting with pypi-...>
 ```
 
 There's also a `poetry config` setting, though this seems to be fine for now!
