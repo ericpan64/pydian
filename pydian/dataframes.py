@@ -7,12 +7,12 @@ from result import Err
 
 COMMAS_OUTSIDE_OF_BRACKETS = r",(?![^{}\[\]]*[}\]])"
 COLON_OUTSIDE_OF_BRACKETS = r":(?![^{]*})"
+PERIOD_UP_TO_NEXT_CLOSE_PARENS = r"\.(.*?\))"
 
 
 def select(
     source: pl.DataFrame,
     key: str,
-    default: Any = Err("Default Err: `select` key didn't match"),
     consume: bool = False,
     rename: dict[str, str] | Callable[[str], str] | None = None,
 ) -> pl.DataFrame | Err:
@@ -61,7 +61,7 @@ def select(
                 if col_name in source.columns:
                     source.drop_in_place(col_name)
     except pl.exceptions.ColumnNotFoundError:
-        res = default
+        return Err("Default Err: `select` key didn't match")
 
     # TODO: Consider supporting regex search and pattern replacements (e.g. prefix_* -> new_prefix_*)
     if rename and isinstance(res, pl.DataFrame):
@@ -99,7 +99,6 @@ def union(
     source: pl.DataFrame,
     rows=pl.DataFrame | list[dict[str, Any]],
     na_default: Any = None,
-    # consume: bool = False,
 ) -> pl.DataFrame | Err:
     """
     Inserts rows into the end of the DataFrame
@@ -125,6 +124,52 @@ def union(
         res = pl.concat([source, rows])
     except Exception as e:
         return Err(f"Error when unioning: {str(e)}")
+
+    return res
+
+
+def group_by(source: pl.DataFrame, agg_str: str, keep_order: bool = True) -> pl.DataFrame | Err:
+    """
+    Allows the following shorthands for `group_by`:
+    - Use comma-delimited col names
+    - Specify aggregators after `->` using list or dict syntax
+        - For no aggregator specified, default to `.all()`
+
+    Examples:
+    - `"a"` -- `group_by('a').all()`
+    - `"a, b"` -- `group_by(['a', 'b']).all()`
+    - `"a -> ['*'.len()]"` -- `group_by('a').len()`
+    - `"a -> ['b'.mean()]"` -- `group_by('a').agg([pl.col('b').mean()]))
+    - `"a -> ['*'.mean()]"` -- `group_by('a').mean()`
+
+    Supported aggregation functions:
+    - `len()`
+    - `sum()`, `mean()`
+    - `max()`, `min()`, `median()`
+    - `std()`, `var()`
+    """
+    # Parse `agg` str into halfs
+    agg_str = agg_str.replace(" ", "")
+    query_parts = agg_str.split("->")
+    res = source
+    if len(query_parts) == 1:
+        # Default to using `.all()` aggregator
+        col_names = agg_str.split(",")
+        res = source.group_by(col_names, maintain_order=keep_order).all()
+    elif len(query_parts) == 2:
+        col_names = query_parts[0].split(",")
+        res = source.group_by(col_names, maintain_order=keep_order)  # type: ignore
+        agg_list_str = query_parts[1].removeprefix("[").removesuffix("]")
+        agg_expr_list = _agg_list_to_polars_expr(agg_list_str)
+        if isinstance(agg_expr_list, Err):
+            return agg_expr_list
+        else:
+            res = res.agg(agg_expr_list)  # type: ignore
+    else:
+        raise ValueError("Groupby aggregation string contained too many `->` characters")
+
+    if res.is_empty():
+        return Err("Dataframe after `group_by` is empty")
 
     return res
 
@@ -333,9 +378,14 @@ def _generate_nesting_list(
 def _extract_list_or_dict(
     s: str, add_prefix: str | None = None
 ) -> list[str] | dict[str, str] | None:
+    """
+    Tries to convert a string into a list[str] or dict[str, str]
+
+    If `add_prefix` is specified, then adds the prefix to list/dict values (not keys)
+    """
     try:
         # Clean string a bit
-        s = s.replace(";", "").replace("(", "").replace(")", "")
+        s = s.replace(";", "").replace("(", "<fn").replace(")", ">")
         res = ast.literal_eval(s)
         if not (isinstance(res, list) or isinstance(res, dict)):
             raise ValueError("Need to specify a list or dict after `->` or `+>`")
@@ -347,3 +397,95 @@ def _extract_list_or_dict(
         return res
     except (ValueError, SyntaxError):
         return None
+
+
+def _agg_list_to_polars_expr(agg_list_str: str) -> list[pl.Expr] | Err:
+    """
+    Takes something like:
+        - "a -> ['*'.len()]"
+        - "a -> ['b'.mean()]"
+        - "a -> ['b'.mean(), 'c'.median()]
+      and turns it into:
+        - [pl.col('*').len()]
+        - [pl.col('b').mean()]
+        - [pl.col('b').mean(), pl.col('c').median()]
+
+    Supported aggregation functions:
+    - `len()`
+    - `sum()`, `mean()`
+    - `max()`, `min()`, `median()`
+    - `std()`, `var()`
+    """
+
+    # Split into cols and aggregators
+    # First split by commas to get each individual part
+    # For each part:
+    #  - Assume if `()` is present, it's an aggregator for the last noted col (in quotes)
+    #  - Assume the first item must be a col name, and the first character must be a quote
+    agg_cols = agg_list_str.split(",")
+    agg_parts = []
+    for col in agg_cols:
+        col_parts = re.split(PERIOD_UP_TO_NEXT_CLOSE_PARENS, col)
+        agg_parts.extend(col_parts)
+    quote = agg_parts[0][0]
+    if quote not in {'"', "'"}:
+        return Err(f"Need to have column expressions in quotes, got `{agg_parts[0]}`")
+    lexed_agg_list_str = str([p.strip(quote) for p in agg_parts if p != ""])
+    parsed_agg_list_str = _extract_list_or_dict(
+        lexed_agg_list_str
+    )  # NOTE: this fn replaces `()` from the string with `<fn>`
+    if parsed_agg_list_str is None:
+        return Err(f"Could not parse expression `{agg_list_str}`")
+
+    # Apply the appropriate aggregation function
+    res = []
+    curr_expr: pl.Expr | None = None
+    for agg_part in parsed_agg_list_str:
+        if not agg_part.endswith("<fn>"):
+            # Assume default `all()` if nothing specified
+            if curr_expr is not None:
+                res.append(curr_expr.all())
+            # Set-up next aggregator
+            curr_expr = pl.col(agg_part)
+        else:
+            # NOTE: each of these aggregators will be considered "terminal". No chaining currently
+            #   ... also no logic-checking / correcting. Just handling as-is!
+            if not isinstance(curr_expr, pl.Expr):
+                return Err(
+                    f"Error when handling aggregation expression, tried to aggregate incorrect type: {curr_expr}"
+                )
+            match agg_part:
+                case "len<fn>":
+                    curr_expr = curr_expr.len()
+                case "sum<fn>":
+                    curr_expr = curr_expr.sum()
+                case "mean<fn>":
+                    curr_expr = curr_expr.mean()
+                case "max<fn>":
+                    curr_expr = curr_expr.max()
+                case "min<fn>":
+                    curr_expr = curr_expr.min()
+                case "median<fn>":
+                    curr_expr = curr_expr.median()
+                case "std<fn>":
+                    curr_expr = curr_expr.std()
+                case "var<fn>":
+                    curr_expr = curr_expr.var()  # .alias(f"{curr_expr.meta.output_name()}_sum")
+                case _:
+                    return Err(f"Got unsupported aggregator: {agg_part}")
+            # Rename column based on the aggregator
+            #   Handle the `*` case by checking for root name
+            agg_suffix = agg_part.removesuffix("<fn>")
+            if root_names := curr_expr.meta.root_names():
+                curr_expr = curr_expr.alias(f"{root_names[0]}_{agg_suffix}")
+            else:
+                # The `*` case -- add a suffix
+                curr_expr = curr_expr.name.suffix(f"_{agg_suffix}")
+            res.append(curr_expr)
+            curr_expr = None
+
+    # Handle last item case (e.g. `b` for "a, b")
+    if curr_expr is not None:
+        res.append(curr_expr.all())
+
+    return res
