@@ -55,7 +55,7 @@ If you are working with `dict`s, you can use:
 
 (Experimental) If you are working with `pl.DataFrame`s, you can use:
 - A [`select`](./pydian/dataframes.py) function simple SQL-like syntax (`,`-delimited, `*` to get all, `:` for row filtering, `-> [ ... ]` for dict-unnesting, `-> { 'new_name': ... }` for renaming, `+>` for using `->` and also keep the original column)
-- Some functions for creating new dataframes (`left_join`, `inner_join`, `union` for rows)
+- Some functions for creating new dataframes (`join`, `union`, `group_by`)
 
 > Note: the DataFrame module is not included by default. To install, use:
 > `pip install "pydian[dataframes]"`
