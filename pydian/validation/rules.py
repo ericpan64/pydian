@@ -265,9 +265,8 @@ class RuleGroup(list):
         #   `rg_failed` make it only contain rules
         # Chain calls for each contained rule
         for r_rg in self:
+            # TODO: This logic is really messy... clean-up!
             try:
-                # NOTE: Both `Ok`, `Err` are truthy as-is, want `Err` to fail rule
-                #   `<Err>.unwrap()` throws exception
                 r_rg_res = r_rg(source, *args)
                 if isinstance(r_rg_res, Ok):
                     self._consume_rules_inplace(r_rg, rg_passed)

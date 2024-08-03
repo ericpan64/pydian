@@ -89,7 +89,6 @@ def test_validation_map_gen() -> None:
     }
 
 
-# NEXT STEP: Get this test to PASS! Finally! ALMOST THERE!
 def test_validate(simple_data: dict[str, Any]) -> None:
     # Example of pass
     v_pass_map = {
@@ -126,5 +125,5 @@ def test_validate(simple_data: dict[str, Any]) -> None:
     v_err_validate_when_present = validate(simple_data, v_pass_map)
     assert isinstance(v_err_validate_when_present, Err)
 
-    # TODO: Add list validation
+    # NEXT STEP: Add list validation
     ...
