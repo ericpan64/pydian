@@ -1,17 +1,14 @@
 [tool.poetry]
 name = "pydian"
-version = "0.4.0"
+version = "0.3.7.1"
 description = "Library for pythonic data interchange"
 authors = ["Eric Pan <eric.pan@stanford.edu>"]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
 jmespath = "^1.0.1"
-<<<<<<< HEAD
 result = "^0.17.0"
-=======
 pydantic = "^2.7.1"
->>>>>>> f985291 (Init validation module)
 polars = { version = "^0.20.23", optional = true }
 
 [tool.poetry.extras]
