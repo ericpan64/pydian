@@ -47,7 +47,7 @@ def pipe(*funcs: ApplyFunc) -> ApplyFunc:
             val = func(val)
         return val
 
-    return partial(run_pipe)
+    return partial(run_pipe)  # TODO: I don't think I need the `partial` here, test to confirm
 
 
 """
