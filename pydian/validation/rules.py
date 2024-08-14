@@ -307,11 +307,7 @@ class RuleGroup(list):
                     )
 
         ## Check for failed required rules -- return Err early if so
-        failed_req_rule = False
-        for r in rg_failed:
-            if isinstance(r, Rule) and (r._constraint is RC.REQUIRED):
-                failed_req_rule = True
-        if failed_req_rule:
+        if _contains_required_rule(rg_failed):
             return Err(rg_failed)
 
         # Check result and return
@@ -328,12 +324,7 @@ class RuleGroup(list):
                 res = Ok(rg_passed)
             case RGC.ALL_WHEN_DATA_PRESENT:
                 # For each failed rule, check if data was present. If so, return `Err`
-                is_fine = True
-                for r in rg_failed:
-                    if isinstance(r, Rule) and (r._key is not None) and get(source, r._key):
-                        is_fine = False
-                        break
-                res = Ok(rg_passed) if is_fine else Err(rg_failed)
+                res = Ok(rg_passed) if not _rulegroup_applies(rg_failed, source) else Err(rg_failed)
             case _:
                 raise RuntimeError(f"Unsupported RuleGroup constraint: {self._constraint}")
         return res
@@ -360,6 +351,27 @@ class RuleGroup(list):
 
 
 """ Helper Functions """
+
+
+def _contains_required_rule(rg: RuleGroup | Rule) -> bool:
+    """
+    Returns `True` if `rg` contains at least 1 Rule with required constraint
+    """
+    if isinstance(rg, Rule):
+        return rg._constraint == RC.REQUIRED
+    return any(_contains_required_rule(r) for r in rg)
+
+
+def _rulegroup_applies(rg: RuleGroup | Rule, source: dict[str, Any]) -> bool:
+    """
+    Returns `True` if `rg` applies to _any_ part of `source`
+      This is mainly to handle the `ALL_WHEN_DATA_PRESENT` logic
+
+    If there is no key-level data in `rg`, then conservatively assume there is overlap
+    """
+    if isinstance(rg, Rule):
+        return rg._key is None or get(source, rg._key) is not None
+    return any(_rulegroup_applies(r, source) for r in rg)
 
 
 def _list_to_rulegroup(
