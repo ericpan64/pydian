@@ -286,8 +286,9 @@ class RuleGroup(list):
 
         # Run each rule and save results
         # NOTE: This nests results in a RuleGroup by default. For recursive calls, we'll unnest this below
-        rg_passed = RuleGroup(constraint=RGC.ALL_RULES)
-        rg_failed = RuleGroup(constraint=RGC.ALL_RULES)
+        rg_passed, rg_failed = RuleGroup(constraint=RGC.ALL_RULES), RuleGroup(
+            constraint=RGC.ALL_RULES
+        )
         for curr_item in self:
             # Run the rule(s)
             curr_res = curr_item(source, *args)
