@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Any
 
 from result import Err, Ok
 
@@ -146,20 +145,24 @@ def test_rulegroup_constraint() -> None:
     assert rg_at_least_three(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
 
 
-# NEXT-STEP: Write this
 def test_rulegroup_constraint_when_data_present() -> None:
+    """
+    Tests applying a rule at a specific key
+    """
     data = {"first": "abc", "second": "Def"}
     is_str = Rule(lambda x: isinstance(x, str), at_key="first")
     starts_with_upper = Rule(lambda x: x[0].isupper(), at_key="second")
 
     all_rules = [is_str, starts_with_upper]
 
+    # Test key applied at rule level
     rg_when_present = RuleGroup(all_rules, RGC.ALL_WHEN_DATA_PRESENT)
     assert rg_when_present(data) == Ok(all_rules)
     assert rg_when_present({"first": "abc"}) == Ok([is_str])
     assert rg_when_present({"second": "Def"}) == Ok([starts_with_upper])
     assert rg_when_present({}) == Ok([])
 
+    # Test outer-most key applied at RuleGroup level (with each Rule also having keys specified)
     rg_with_missing_key = RuleGroup(all_rules, RGC.ALL_WHEN_DATA_PRESENT, at_key="third")
     assert rg_with_missing_key(data) == Ok([])
     assert rg_with_missing_key({"first": "abc"}) == Ok([])
@@ -171,28 +174,37 @@ def test_rulegroup_constraint_when_data_present() -> None:
 
 
 def test_nested_rulegroup() -> None:
+    """
+    Test return structure when a `RuleGroup` contains a nested `RuleGroup`
+
+    See the `__call__` docstring on `RuleGroup`
+    """
     is_str = Rule(lambda x: isinstance(x, str))
     starts_with_upper = Rule(lambda x: x[0].isupper())
-    is_not_list = Rule(lambda x: not isinstance(x, list))
     is_nonempty = Rule(lambda x: len(x) > 0)
 
     PASS_ALL_STR = "Abc"
     PASS_ONE_STR = "abc"
-    PASS_NONE: list = []
+    PASS_NONE = ""
+    # All rules are `RGC.ALL_RULES` by default
     rs_str_nonempty = RuleGroup([is_str, is_nonempty])
-    rs_notlist_upper = RuleGroup([is_not_list, starts_with_upper])
+    rs_notlist_upper = RuleGroup([is_nonempty, starts_with_upper])
 
     # NOTE: returns groups of `RuleGroup`s within an outer `RuleGroup`.
-    # NOTE: failed rules are saved discretely (i.e. taken out of their original RuleGroup, if any)
-    nested_rs = RuleGroup([rs_str_nonempty, rs_notlist_upper])
-    res_rs_all_rules = RuleGroup([is_str, is_nonempty, is_not_list, starts_with_upper])
+    nested_rs = RuleGroup([rs_str_nonempty, rs_notlist_upper], RGC.AT_LEAST_ONE)
+    expected_err_rs = RuleGroup([RuleGroup([is_nonempty]), rs_notlist_upper], RGC.ALL_RULES)
 
-    assert nested_rs(PASS_ALL_STR) == Ok(res_rs_all_rules)
-    assert nested_rs(PASS_ONE_STR) == Err(RuleGroup(starts_with_upper))
-    assert nested_rs(PASS_NONE) == Err(res_rs_all_rules)
+    assert nested_rs(PASS_ALL_STR) == Ok(
+        RuleGroup([rs_str_nonempty, rs_notlist_upper], RGC.ALL_RULES)
+    )
+    assert nested_rs(PASS_ONE_STR) == Ok(RuleGroup([rs_str_nonempty], RGC.ALL_RULES))
+    assert nested_rs(PASS_NONE) == Err(expected_err_rs)
 
 
 def test_rule_constraint() -> None:
+    """
+    Test `Rule`-level constraint (`RC`)
+    """
     is_str_required = Rule(lambda x: isinstance(x, str)) & IsRequired()
     is_nonempty = Rule(lambda x: len(x) > 0)
 
@@ -208,6 +220,9 @@ def test_rule_constraint() -> None:
 
 
 def test_combine_rule() -> None:
+    """
+    Test the `&` operator
+    """
     some_rule = Rule(p.gte(0))
     some_other_rule = Rule(p.lt(10))
     some_other_rulegroup = RuleGroup([some_rule, some_other_rule])

@@ -35,6 +35,9 @@ class RGC(Enum):
     RGC takes precedent over RC (i.e. a `RGC` setting will override a `RC` setting when applicable)
     """
 
+    # TODO: Consider conditional feature -- `ONLY_IF(...)`, `ALL_IF(...)` instead of `ALL_WHEN_DATA_PRESENT`
+    #       Would need to think through if they take generic callables, Rules, etc.
+
     ALL_REQUIRED_RULES = -2  # NOTE: This makes rules default _optional_
     ALL_RULES = -1  # NOTE: This makes rules default _required_
     ALL_WHEN_DATA_PRESENT = 0  # NOTE: This makes rules default _required when data is present_
@@ -209,6 +212,11 @@ class RuleGroup(list):
             self._n_rules += 1
         super().append(item)
 
+    def extend(self, item: RuleGroup | Iterable[Rule | RuleGroup | Callable]):
+        if isinstance(item, RuleGroup):
+            self._n_rules += item._n_rules
+        super().extend(item)
+
     @staticmethod
     def combine(
         first: Rule | RuleGroup,
@@ -251,49 +259,68 @@ class RuleGroup(list):
         return res
 
     def __call__(self, source: Any, *args) -> Ok[RuleGroup] | Err[RuleGroup]:
-        # For passed rules/rulegroups, the structure is maintained
-        # For failed rules, they're stored discretely (TODO: make this make sense)
-        rg_passed, rg_failed = RuleGroup(), RuleGroup()
+        """
+        Calls all embedded `Rule | RuleGroup`s and returns a corresponding result -- either:
+          - Ok(rules_or_rgs_passed)
+          - Err(rules_or_rgs_failed)
 
+        If the `RuleGroup` is nested: the returned `RuleGroup` will maintain the original structure.
+          Otherwise: an un-nested structure is used!
+
+        If there are nested `RuleGroup`s, then expect the inner-most failed `RuleGroup` to have
+          discrete information on why the case failed (i.e. the original nested structure is kept).
+
+          E.g. for a RuleGroup of: `[A, B, [C, D, E]]` and `B, D, E` fails,
+            expect: `Err([B, [D, E]])` as the return value.
+
+            I.e., we know that Rule `B` and RuleGroup `[C, D, E]` failed with `[D, E]` specifically
+            (and that information is retained as a RuleGroup)
+
+          E.g. for a RuleGroup of: `[A, [B, [C, D, E]]]` and `B, D, E` fails,
+            expect: `Err([[B, [D, E]]])` as the return value
+        """
         # Apply key unnesting logic
         # NOTE: only when source is a dict. Design choice!
         if isinstance(source, dict) and self._key:
             source = get(source, self._key)
 
-        # NEXT STEP
-        # TODO: Issue is HERE: the RuleGroup case isn't being handled
-        #   `rg_failed` make it only contain rules
-        # Chain calls for each contained rule
-        for r_rg in self:
-            # TODO: This logic is really messy... clean-up!
-            try:
-                r_rg_res = r_rg(source, *args)
-                if isinstance(r_rg_res, Ok):
-                    self._consume_rules_inplace(r_rg, rg_passed)
-                elif isinstance(r_rg_res, Err):
-                    # Take the failed rules instead of the entire `RuleGroup`
-                    self._consume_rules_inplace(r_rg_res.err_value, rg_failed)
-                else:
-                    raise RuntimeError(f"Unexpected result type: {type(r_rg_res)}")
-            except:
-                # TODO: include other info about exception?
-                self._consume_rules_inplace(r_rg, rg_failed)
+        # Run each rule and save results
+        # NOTE: This nests results in a RuleGroup by default. For recursive calls, we'll unnest this below
+        rg_passed = RuleGroup(constraint=RGC.ALL_RULES)
+        rg_failed = RuleGroup(constraint=RGC.ALL_RULES)
+        for curr_item in self:
+            # Run the rule(s)
+            curr_res = curr_item(source, *args)
+            # Handle the different cases
+            match curr_item, curr_res:
+                case (Rule(), Ok()):
+                    rg_passed.append(curr_item)
+                case (Rule(), Err()):
+                    rg_failed.append(curr_item)
+                case (RuleGroup(), Ok()):
+                    rg_passed.append(curr_res.ok_value)
+                case (RuleGroup(), Err()):
+                    rg_failed.append(curr_res.err_value)
+                case _:
+                    raise RuntimeError(
+                        f"Unexpected type or result: {type(curr_item)}, {type(curr_res)}"
+                    )
+
+        ## Check for failed required rules -- return Err early if so
+        failed_req_rule = False
+        for r in rg_failed:
+            if isinstance(r, Rule) and (r._constraint is RC.REQUIRED):
+                failed_req_rule = True
+        if failed_req_rule:
+            return Err(rg_failed)
 
         # Check result and return
         res: Ok[RuleGroup] | Err[RuleGroup]
-        ## Check for failed required rules -- return Err early if so
-        # TODO: want a RuleGroup with _just_ the failed rule, as well as the key information.
-        #       Right now, it's returning the entire `RuleGroup` that the failed rule is nested in
-        #       Fixing this requires thinking about the recursion back-up
-        for r in rg_failed:
-            if isinstance(r, Rule) and (r._constraint is RC.REQUIRED):
-                return Err(RuleGroup(rg_failed))
-        ## Unnest top-most level
-        rg_passed, rg_failed = _unnest_rulegroup(rg_passed), _unnest_rulegroup(rg_failed)
-        ## Do matching
+        # NOTE: `_n_rules` is the total number of discrete rules (including nested).
+        #      Thus, for `ALL_RULES` we check every rule, and `AT_LEAST_x` we check top-level groups
         match self._constraint:
             case RGC.ALL_RULES:
-                res = Ok(rg_passed) if len(rg_passed) == self._n_rules else Err(rg_failed)
+                res = Ok(rg_passed) if rg_passed._n_rules == self._n_rules else Err(rg_failed)
             case RGC.AT_LEAST_ONE | RGC.AT_LEAST_TWO | RGC.AT_LEAST_THREE:
                 res = Ok(rg_passed) if len(rg_passed) >= self._constraint.value else Err(rg_failed)
             case RGC.ALL_REQUIRED_RULES:
@@ -310,18 +337,6 @@ class RuleGroup(list):
             case _:
                 raise RuntimeError(f"Unsupported RuleGroup constraint: {self._constraint}")
         return res
-
-    def _consume_rules_inplace(self, source: RuleGroup | Rule, target: RuleGroup) -> None:
-        """
-        Adds rules to target RuleGroup
-        """
-        if isinstance(source, RuleGroup):
-            for r in source:
-                target.append(r)
-        elif isinstance(source, Rule):
-            target.append(source)
-        else:
-            raise RuntimeError(f"Type error when calling RuleGroup, got: {type(source)}")
 
     def __hash__(self):
         return hash(tuple(self))
@@ -345,18 +360,6 @@ class RuleGroup(list):
 
 
 """ Helper Functions """
-
-
-def _unnest_rulegroup(rs: RuleGroup) -> RuleGroup:
-    """
-    Removes an unused outer nesting
-    """
-    res = rs
-    if len(rs) == 1:
-        (item,) = rs
-        if isinstance(item, RuleGroup):
-            res = item
-    return res
 
 
 def _list_to_rulegroup(
