@@ -88,7 +88,23 @@ class Rule:
         elif isinstance(source, Err):
             raise ValueError(f"Rule called with Err: {source}")
         try:
-            res = self._fn(source, *args)
+            # TODO: Handle list case (key = "[*]")
+            if self._key and "[*]" in self._key:
+                assert isinstance(source, list), "Err: did not get a `list` for `[*]` key!"
+                # Ok. We run the `_fn` for each item in the list, and return the results if all passed
+                #   If there's any fail, then exit early, and the last item is a fail
+                truthy_list = True
+                res = []
+                for it in source:
+                    it_res = self._fn(it)
+                    res.append(it_res)
+                    truthy_list = truthy_list and bool(it_res)
+                    if not truthy_list:
+                        break
+                if not truthy_list:
+                    raise RuntimeError(f"Got failure when evaluating item {len(res)}: {res[-1]}")
+            else:
+                res = self._fn(source, *args)
             if res:
                 return Ok(res)
         except Exception as e:
@@ -377,9 +393,10 @@ def _rulegroup_applies(rg: RuleGroup | Rule, source: dict[str, Any]) -> bool:
 
 def _list_to_rulegroup(
     l: list[Callable | Rule | RuleGroup | dict | list], key_prefix: str | None = None
-) -> RuleGroup:
+) -> RuleGroup | Rule:
     """
     Given a list, compress it into a single `RuleGroup`
+      (or for the `[*]` case: a `Rule` containing a single `RuleGroup`)
 
     An item in the list should pass at least one of the callables in the `RuleGroup`.
       For example: `{ 'k': [ str, bool ]}` -- at key 'k', it can contain a list `str` or `bool`
@@ -395,8 +412,8 @@ def _list_to_rulegroup(
                 it._key = at_key
                 res.append(it)
             case RuleGroup():
-                it._key = at_key
-                res = it
+                # Wrap in a `Rule` so the `[*]` logic is applied
+                res = Rule(it, at_key=at_key)  # type: ignore
             case dict():
                 res.append(_dict_to_rulegroup(it, at_key))
             case list():
