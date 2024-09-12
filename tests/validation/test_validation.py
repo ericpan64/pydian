@@ -1,9 +1,12 @@
+from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel
+import pytest
+from pydantic import BaseModel, ValidationError
 from result import Err, Ok
 
-from pydian.validation import RC, Rule, RuleGroup, validate
+from pydian.validation import RC, RuleGroup, validate
+from pydian.validation.pydantic import create_pydantic_model
 from pydian.validation.specific import InRange, IsRequired, IsType, NotRequired
 
 
@@ -26,21 +29,43 @@ def test_pydantic(simple_data: dict[str, Any]) -> None:
         data: PatientWrapper
         # `list_data` field is ignored when present (which is what we want)
 
-    assert DataWrapper(**simple_data)
+    invalid_data = {"a": "b"}
+    invalid_data_field_missing = {"data": {"patient": {"id": "abc"}}}
+    invalid_data_type_mismatch = {"data": {"patient": {"id": 123, "active": True}}}
+    invalid_data_type_mismatch_optional = {
+        "data": {"patient": {"id": "123", "active": True, "birthdate": datetime(2024, 9, 12)}}
+    }
 
-    # # Generate the same model with `create_model`
-    # v_pass_map = {
-    #     "data": IsRequired & {
-    #         "patient": IsRequired() & {
-    #             "id": IsRequired() & str,
-    #             "active": IsRequired() & bool,
-    #             "birthdate": str, # implicitly optional
-    #         }
-    #     }
-    # }
-    # # TODO: this should be a function that goes through RuleGroup/Rule, finds type checks,
-    # #       and then adds field-validators for everything else.
-    # DataWrapperDyn = create_pydantic_model("")
+    def _test_invalid_cases(model: type) -> None:
+        with pytest.raises(ValidationError):
+            model(**invalid_data)
+        with pytest.raises(ValidationError):
+            model(**invalid_data_field_missing)
+        with pytest.raises(ValidationError):
+            model(**invalid_data_type_mismatch)
+        with pytest.raises(ValidationError):
+            model(**invalid_data_type_mismatch_optional)
+
+    assert DataWrapper(**simple_data)
+    _test_invalid_cases(DataWrapper)
+
+    # Generate the same model with `create_model`
+    v_pass_map = {
+        "data": IsRequired()
+        & {
+            "patient": IsRequired()
+            & {
+                "id": IsRequired() & str,
+                "active": IsRequired() & bool,
+                "birthdate": str,  # implicitly optional
+            }
+        }
+    }
+    # NOTE: as-is, this will just validate the `data` layer (the nested classes aren't created)
+    DataWrapperDyn = create_pydantic_model("DataWrapperDyn", v_pass_map)
+    DataWrapperDyn(**simple_data)
+    assert DataWrapperDyn(**simple_data)
+    _test_invalid_cases(DataWrapperDyn)
 
 
 def test_validation_map_gen() -> None:

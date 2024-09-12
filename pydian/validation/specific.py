@@ -119,12 +119,15 @@ class MinCount(Rule):
 
 
 class IsType(Rule):
+    _type: type | None = None  # Store this for pydantic conversion
+
     def __init__(
         self,
         typ: type,
         constraint: RC | None = None,
         at_key: str | None = None,
     ):
+        self._type = typ
         super().__init__(p.isinstance_of(typ), constraint, at_key)
 
 

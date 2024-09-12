@@ -1,6 +1,5 @@
 from typing import Any
 
-from pydantic import create_model
 from result import Err, Ok
 
 from ..dicts import get
@@ -34,21 +33,3 @@ def validate(
         return Err(failed_r_rg)
 
     return Ok(source)
-
-
-# TODO: Implement this and add to pydantic test
-
-# def to_pydantic(validation_map: dict[str, Rule | RuleGroup]) -> dict[str, Any]:
-#     """
-#     Convert a validation_map to a Pydantic model.
-
-#     OK. Try the following algo:
-#     1. First-pass of validation_map:
-#         - Parse-out structural schema
-#         - Parse-out custom Rule/RuleGroup requirements
-#     2. Use pydantic `create_model` to create custom class at runtime
-#         - Validate `source` against custom class
-#     3. Run additional rules from first-pass
-#         - Each key information should be saved accordingly
-#     """
-#     return create_model(...)
