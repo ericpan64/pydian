@@ -7,7 +7,7 @@ from result import Err, Ok
 
 from pydian.validation import RC, RuleGroup, validate
 from pydian.validation.pydantic import create_pydantic_model
-from pydian.validation.specific import InRange, IsRequired, IsType, NotRequired
+from pydian.validation.specific import InRange, IsOptional, IsRequired, IsType
 
 
 # TODO: add tests for pydantic validation generation (expand RuleGroup, or keep unnested?)
@@ -162,7 +162,7 @@ def test_validate(simple_data: dict[str, Any]) -> None:
     assert isinstance(v_err_missing_key, Err)
 
     # Example of fail -- will still validate when present, and ignore if not present
-    v_fail_map["data"] &= NotRequired()
+    v_fail_map["data"] &= IsOptional()
     v_err_validate_when_present = validate(simple_data, v_fail_map)
     assert isinstance(v_err_validate_when_present, Err)
 

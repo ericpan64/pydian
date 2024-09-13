@@ -37,7 +37,7 @@ class IsRequired(Rule):
         return self.__and__(other)
 
 
-class NotRequired(Rule):
+class IsOptional(Rule):
     """
     When combined with another rule, removes the Required constraint.
 

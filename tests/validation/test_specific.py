@@ -5,11 +5,11 @@ from pydian.validation import RC, Rule, RuleGroup
 from pydian.validation.specific import (
     InRange,
     InSet,
+    IsOptional,
     IsRequired,
     IsType,
     MaxCount,
     MinCount,
-    NotRequired,
 )
 
 
@@ -25,8 +25,8 @@ def test_is_required() -> None:
     is_str_required = IsRequired() & is_str
     assert is_str_required._constraint
 
-    # Test `NotRequired` while we're here!
-    is_str_not_required = NotRequired() & is_str_required
+    # Test `IsOptional` while we're here!
+    is_str_not_required = IsOptional() & is_str_required
     assert is_str_not_required._constraint is None
 
     # Works for a `RuleGroup`
