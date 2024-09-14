@@ -12,14 +12,14 @@ def test_rule() -> None:
     is_str = Rule(lambda x: isinstance(x, str))
     SOME_STR = "Abc"
     SOME_INT = 1
-    assert is_str(SOME_STR) == Ok(True)
+    assert is_str(SOME_STR) == Ok((is_str, SOME_STR, True))
     assert isinstance(is_str(SOME_INT), Err)
 
     # Test exceptions
     # NOTE: intentionally swapped order of checks below to test exception case
     is_nonempty_list = Rule(lambda x: len(x) > 0 and isinstance(x, list))
     SOME_NONEMPTY_LIST = [True]
-    assert is_nonempty_list(SOME_NONEMPTY_LIST) == Ok(True)
+    assert is_nonempty_list(SOME_NONEMPTY_LIST) == Ok((is_nonempty_list, SOME_NONEMPTY_LIST, True))
     assert isinstance(is_nonempty_list(SOME_INT), Err)  # Exception case: `len` called in `int`
 
 
@@ -44,26 +44,32 @@ def test_rulegroup() -> None:
     PASS_NONE = 42
 
     # Test `RuleGroup`
-    assert rg_all(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_all(PASS_ONE_STR) == Err([is_nonempty, starts_with_upper])
-    assert rg_all(PASS_TWO_STR) == Err([starts_with_upper])
-    assert rg_all(PASS_NONE) == Err(all_rules)
+    assert rg_all(PASS_ALL_STR) == Ok((rg_all, PASS_ALL_STR, all_rules))
+    assert rg_all(PASS_ONE_STR) == Err(
+        (rg_all, PASS_ONE_STR, RuleGroup([is_nonempty, starts_with_upper]))
+    )
+    assert rg_all(PASS_TWO_STR) == Err((rg_all, PASS_TWO_STR, RuleGroup([starts_with_upper])))
+    assert rg_all(PASS_NONE) == Err((rg_all, PASS_NONE, RuleGroup(all_rules)))
 
-    assert rg_one(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_one(PASS_ONE_STR) == Ok([is_str])
-    assert rg_one(PASS_TWO_STR) == Ok([is_str, is_nonempty])
-    assert rg_one(PASS_NONE) == Err(all_rules)
+    assert rg_one(PASS_ALL_STR) == Ok((rg_one, PASS_ALL_STR, RuleGroup(all_rules)))
+    assert rg_one(PASS_ONE_STR) == Ok((rg_one, PASS_ONE_STR, RuleGroup([is_str])))
+    assert rg_one(PASS_TWO_STR) == Ok((rg_one, PASS_TWO_STR, RuleGroup([is_str, is_nonempty])))
+    assert rg_one(PASS_NONE) == Err((rg_one, PASS_NONE, RuleGroup(all_rules)))
 
-    assert rg_two(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_two(PASS_ONE_STR) == Err([is_nonempty, starts_with_upper])
-    assert rg_two(PASS_TWO_STR) == Ok([is_str, is_nonempty])
-    assert rg_two(PASS_NONE) == Err(all_rules)
+    assert rg_two(PASS_ALL_STR) == Ok((rg_two, PASS_ALL_STR, RuleGroup(all_rules)))
+    assert rg_two(PASS_ONE_STR) == Err(
+        (rg_two, PASS_ONE_STR, RuleGroup([is_nonempty, starts_with_upper]))
+    )
+    assert rg_two(PASS_TWO_STR) == Ok((rg_two, PASS_TWO_STR, RuleGroup([is_str, is_nonempty])))
+    assert rg_two(PASS_NONE) == Err((rg_two, PASS_NONE, RuleGroup(all_rules)))
 
     # same as `rg_all`
-    assert rg_three(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_three(PASS_ONE_STR) == Err([is_nonempty, starts_with_upper])
-    assert rg_three(PASS_TWO_STR) == Err([starts_with_upper])
-    assert rg_three(PASS_NONE) == Err(all_rules)
+    assert rg_three(PASS_ALL_STR) == Ok((rg_three, PASS_ALL_STR, RuleGroup(all_rules)))
+    assert rg_three(PASS_ONE_STR) == Err(
+        (rg_three, PASS_ONE_STR, RuleGroup([is_nonempty, starts_with_upper]))
+    )
+    assert rg_three(PASS_TWO_STR) == Err((rg_three, PASS_TWO_STR, RuleGroup([starts_with_upper])))
+    assert rg_three(PASS_NONE) == Err((rg_three, PASS_NONE, RuleGroup(all_rules)))
 
 
 def test_rule_at_key() -> None:
@@ -73,10 +79,10 @@ def test_rule_at_key() -> None:
     starts_with_upper = Rule(lambda x: x[0].isupper(), at_key="second")
 
     rg = RuleGroup([is_str, is_nonempty, starts_with_upper])
-    assert rg(data) == Ok([is_str, is_nonempty, starts_with_upper])
-    assert rg({"first": "abc"}) == Err([starts_with_upper])
-    assert rg({"second": "Def"}) == Err([is_str, is_nonempty])
-    assert rg({}) == Err([is_str, is_nonempty, starts_with_upper])
+    assert rg(data) == Ok((rg, data, RuleGroup([is_str, is_nonempty, starts_with_upper])))
+    assert rg({"first": "abc"}) == Err((rg, {"first": "abc"}, RuleGroup([starts_with_upper])))
+    assert rg({"second": "Def"}) == Err((rg, {"second": "Def"}, RuleGroup([is_str, is_nonempty])))
+    assert rg({}) == Err((rg, {}, RuleGroup([is_str, is_nonempty, starts_with_upper])))
 
 
 def test_rulegroup_at_key() -> None:
@@ -86,10 +92,16 @@ def test_rulegroup_at_key() -> None:
     starts_with_upper = Rule(lambda x: x[0].isupper(), at_key="second")
 
     rg = RuleGroup([is_str, is_nonempty, starts_with_upper], at_key="some_layer")
-    assert rg(data) == Ok([is_str, is_nonempty, starts_with_upper])
-    assert rg({"some_layer": {"first": "abc"}}) == Err([starts_with_upper])
-    assert rg({"some_layer": {"second": "Def"}}) == Err([is_str, is_nonempty])
-    assert rg({"first": "abc", "second": "Def"}) == Err([is_str, is_nonempty, starts_with_upper])
+    assert rg(data) == Ok((rg, data, RuleGroup([is_str, is_nonempty, starts_with_upper])))
+    assert rg({"some_layer": {"first": "abc"}}) == Err(
+        (rg, {"some_layer": {"first": "abc"}}, RuleGroup([starts_with_upper]))
+    )
+    assert rg({"some_layer": {"second": "Def"}}) == Err(
+        (rg, {"some_layer": {"second": "Def"}}, RuleGroup([is_str, is_nonempty]))
+    )
+    assert rg({"first": "abc", "second": "Def"}) == Err(
+        (rg, {"first": "abc", "second": "Def"}, RuleGroup([is_str, is_nonempty, starts_with_upper]))
+    )
 
 
 def test_rulegroup_constraint() -> None:
@@ -106,43 +118,79 @@ def test_rulegroup_constraint() -> None:
     PASS_NONE = False
 
     rg_all = RuleGroup(all_rules, RGC.ALL_RULES)
-    assert rg_all(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_all(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
-    assert rg_all(PASS_TWO_STR) == Err([contains_digit])
-    assert rg_all(PASS_NONE) == Err(all_rules)
+    assert rg_all(PASS_ALL_STR) == Ok((rg_all, PASS_ALL_STR, RuleGroup(all_rules)))
+    assert rg_all(PASS_ONE_STR) == Err(
+        (rg_all, PASS_ONE_STR, RuleGroup([contains_digit, starts_with_upper_required]))
+    )
+    assert rg_all(PASS_TWO_STR) == Err((rg_all, PASS_TWO_STR, RuleGroup([contains_digit])))
+    assert rg_all(PASS_NONE) == Err((rg_all, PASS_NONE, RuleGroup(all_rules)))
 
     rg_all_required = RuleGroup(all_rules, RGC.ALL_REQUIRED_RULES)
-    assert rg_all_required(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_all_required(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
-    assert rg_all_required(PASS_TWO_STR) == Ok([is_str, starts_with_upper_required])
-    assert rg_all_required(PASS_NONE) == Err(all_rules)
+    assert rg_all_required(PASS_ALL_STR) == Ok(
+        (rg_all_required, PASS_ALL_STR, RuleGroup(all_rules))
+    )
+    assert rg_all_required(PASS_ONE_STR) == Err(
+        (rg_all_required, PASS_ONE_STR, RuleGroup([contains_digit, starts_with_upper_required]))
+    )
+    assert rg_all_required(PASS_TWO_STR) == Ok(
+        (rg_all_required, PASS_TWO_STR, RuleGroup([is_str, starts_with_upper_required]))
+    )
+    assert rg_all_required(PASS_NONE) == Err((rg_all_required, PASS_NONE, RuleGroup(all_rules)))
 
     # # NOTE: Required rules will cause the `RuleGroup` to fail if they don't pass
     rg_at_least_one = RuleGroup(all_rules, RGC.AT_LEAST_ONE)
-    assert rg_at_least_one(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_at_least_one(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
-    assert rg_at_least_one(PASS_TWO_STR) == Ok([is_str, starts_with_upper_required])
-    assert rg_at_least_one(PASS_NONE) == Err(all_rules)
+    assert rg_at_least_one(PASS_ALL_STR) == Ok(
+        (rg_at_least_one, PASS_ALL_STR, RuleGroup(all_rules))
+    )
+    assert rg_at_least_one(PASS_ONE_STR) == Err(
+        (rg_at_least_one, PASS_ONE_STR, RuleGroup([contains_digit, starts_with_upper_required]))
+    )
+    assert rg_at_least_one(PASS_TWO_STR) == Ok(
+        (rg_at_least_one, PASS_TWO_STR, RuleGroup([is_str, starts_with_upper_required]))
+    )
+    assert rg_at_least_one(PASS_NONE) == Err((rg_at_least_one, PASS_NONE, RuleGroup(all_rules)))
 
     rg_at_least_two = RuleGroup(all_rules, RGC.AT_LEAST_TWO)
-    assert rg_at_least_two(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_at_least_two(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
-    assert rg_at_least_two(PASS_TWO_STR) == Ok([is_str, starts_with_upper_required])
-    assert rg_at_least_two(PASS_NONE) == Err(all_rules)
+    assert rg_at_least_two(PASS_ALL_STR) == Ok(
+        (rg_at_least_two, PASS_ALL_STR, RuleGroup(all_rules))
+    )
+    assert rg_at_least_two(PASS_ONE_STR) == Err(
+        (rg_at_least_two, PASS_ONE_STR, RuleGroup([contains_digit, starts_with_upper_required]))
+    )
+    assert rg_at_least_two(PASS_TWO_STR) == Ok(
+        (rg_at_least_two, PASS_TWO_STR, RuleGroup([is_str, starts_with_upper_required]))
+    )
+    assert rg_at_least_two(PASS_NONE) == Err((rg_at_least_two, PASS_NONE, RuleGroup(all_rules)))
 
     rg_at_least_three = RuleGroup(all_rules, RGC.AT_LEAST_THREE)
-    assert rg_at_least_three(PASS_ALL_STR) == Ok(all_rules)
-    assert rg_at_least_three(PASS_ONE_STR) == Err([contains_digit, starts_with_upper_required])
-    assert rg_at_least_three(PASS_TWO_STR) == Err([contains_digit])
-    assert rg_at_least_three(PASS_NONE) == Err(all_rules)
+    assert rg_at_least_three(PASS_ALL_STR) == Ok(
+        (rg_at_least_three, PASS_ALL_STR, RuleGroup(all_rules))
+    )
+    assert rg_at_least_three(PASS_ONE_STR) == Err(
+        (rg_at_least_three, PASS_ONE_STR, RuleGroup([contains_digit, starts_with_upper_required]))
+    )
+    assert rg_at_least_three(PASS_TWO_STR) == Err(
+        (rg_at_least_three, PASS_TWO_STR, RuleGroup([contains_digit]))
+    )
+    assert rg_at_least_three(PASS_NONE) == Err((rg_at_least_three, PASS_NONE, RuleGroup(all_rules)))
 
     # Failing the required rule should always result in a fail
-    PASS_TWO_STR_FAIL_REQ = "abc123"  # Fails the required rule
-    assert rg_all(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
-    assert rg_all_required(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
-    assert rg_at_least_one(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
-    assert rg_at_least_two(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
-    assert rg_at_least_three(PASS_TWO_STR_FAIL_REQ) == Err([starts_with_upper_required])
+    PASS_TWO_STR_FAIL_REQ = "abc123"
+    assert rg_all(PASS_TWO_STR_FAIL_REQ) == Err(
+        (rg_all, PASS_TWO_STR_FAIL_REQ, RuleGroup([starts_with_upper_required]))
+    )
+    assert rg_all_required(PASS_TWO_STR_FAIL_REQ) == Err(
+        (rg_all_required, PASS_TWO_STR_FAIL_REQ, RuleGroup([starts_with_upper_required]))
+    )
+    assert rg_at_least_one(PASS_TWO_STR_FAIL_REQ) == Err(
+        (rg_at_least_one, PASS_TWO_STR_FAIL_REQ, RuleGroup([starts_with_upper_required]))
+    )
+    assert rg_at_least_two(PASS_TWO_STR_FAIL_REQ) == Err(
+        (rg_at_least_two, PASS_TWO_STR_FAIL_REQ, RuleGroup([starts_with_upper_required]))
+    )
+    assert rg_at_least_three(PASS_TWO_STR_FAIL_REQ) == Err(
+        (rg_at_least_three, PASS_TWO_STR_FAIL_REQ, RuleGroup([starts_with_upper_required]))
+    )
 
 
 def test_rulegroup_constraint_when_data_present() -> None:
@@ -157,20 +205,30 @@ def test_rulegroup_constraint_when_data_present() -> None:
 
     # Test key applied at rule level
     rg_when_present = RuleGroup(all_rules, RGC.ALL_WHEN_DATA_PRESENT)
-    assert rg_when_present(data) == Ok(all_rules)
-    assert rg_when_present({"first": "abc"}) == Ok([is_str])
-    assert rg_when_present({"second": "Def"}) == Ok([starts_with_upper])
-    assert rg_when_present({}) == Ok([])
+    assert rg_when_present(data) == Ok((rg_when_present, data, rg_when_present))
+    assert rg_when_present({"first": "abc"}) == Ok(
+        (rg_when_present, {"first": "abc"}, RuleGroup([is_str]))
+    )
+    assert rg_when_present({"second": "Def"}) == Ok(
+        (rg_when_present, {"second": "Def"}, RuleGroup([starts_with_upper]))
+    )
+    assert rg_when_present({}) == Ok((rg_when_present, {}, RuleGroup([])))
 
     # Test outer-most key applied at RuleGroup level (with each Rule also having keys specified)
     rg_with_missing_key = RuleGroup(all_rules, RGC.ALL_WHEN_DATA_PRESENT, at_key="third")
-    assert rg_with_missing_key(data) == Ok([])
-    assert rg_with_missing_key({"first": "abc"}) == Ok([])
-    assert rg_with_missing_key({"second": "Def"}) == Ok([])
+    assert rg_with_missing_key(data) == Ok((rg_with_missing_key, data, RuleGroup([])))
+    assert rg_with_missing_key({"first": "abc"}) == Ok(
+        (rg_with_missing_key, {"first": "abc"}, RuleGroup([]))
+    )
+    assert rg_with_missing_key({"second": "Def"}) == Ok(
+        (rg_with_missing_key, {"second": "Def"}, RuleGroup([]))
+    )
     # TODO: This case seems weird -- the first key hits, and then the second two miss due to types
     #       ... right now it'll pass since the data get "misses". Though issue with type check. Hm.
-    assert rg_with_missing_key({"third": "Ghi"}) == Ok([is_str, starts_with_upper])
-    assert rg_with_missing_key({}) == Ok([])
+    assert rg_with_missing_key({"third": "Ghi"}) == Ok(
+        (rg_with_missing_key, {"third": "Ghi"}, RuleGroup([is_str, starts_with_upper]))
+    )
+    assert rg_with_missing_key({}) == Ok((rg_with_missing_key, {}, RuleGroup([])))
 
 
 def test_nested_rulegroup() -> None:
@@ -196,10 +254,10 @@ def test_nested_rulegroup() -> None:
     expected_err_rg = RuleGroup([RuleGroup([is_nonempty]), rg_notlist_upper], RGC.ALL_RULES)
 
     assert nested_rg(PASS_ALL_STR) == Ok(
-        RuleGroup([rg_str_nonempty, rg_notlist_upper], RGC.ALL_RULES)
+        (nested_rg, PASS_ALL_STR, RuleGroup([rg_str_nonempty, rg_notlist_upper]))
     )
-    assert nested_rg(PASS_ONE_STR) == Ok(RuleGroup([rg_str_nonempty], RGC.ALL_RULES))
-    assert nested_rg(PASS_NONE) == Err(expected_err_rg)
+    assert nested_rg(PASS_ONE_STR) == Ok((nested_rg, PASS_ONE_STR, RuleGroup([rg_str_nonempty])))
+    assert nested_rg(PASS_NONE) == Err((nested_rg, PASS_NONE, expected_err_rg))
 
 
 def test_rule_constraint() -> None:
@@ -215,9 +273,9 @@ def test_rule_constraint() -> None:
     PASS_NONEMPTY: list[int] = [1, 2, 3]
 
     # We pass the RuleGroup since condition is met, and all REQUIRED rules are included
-    assert rg_one(PASS_IS_STR_REQ) == Ok([is_str_required])
+    assert rg_one(PASS_IS_STR_REQ) == Ok((rg_one, PASS_IS_STR_REQ, RuleGroup([is_str_required])))
     # We fail the RuleGroup since a REQUIRED rule does not pass
-    assert rg_one(PASS_NONEMPTY) == Err([is_str_required])
+    assert rg_one(PASS_NONEMPTY) == Err((rg_one, PASS_NONEMPTY, RuleGroup([is_str_required])))
 
 
 def test_combine_rule() -> None:
