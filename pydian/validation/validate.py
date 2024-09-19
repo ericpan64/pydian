@@ -3,7 +3,7 @@ from typing import Any, Callable
 from result import Err, Ok
 
 from ..dicts import get
-from .rules import RGC, Rule, RuleGroup
+from .rules import Rule, RuleGroup
 
 
 def validate(

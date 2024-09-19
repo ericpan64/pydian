@@ -139,10 +139,11 @@ def test_validation_map_gen() -> None:
     }
 
     list_check_dict_discrete = {
-        "list_data": InRange(3, 10) & [v_pass_map["data"]]  # checking against this data schema
+        "list_data": InRange(3, 10)
+        & [v_pass_map_updated["data"]]  # checking against this data schema
     }
 
-    expected_v_pass_map_data_validator = deepcopy(v_pass_map["data"])
+    expected_v_pass_map_data_validator = deepcopy(v_pass_map_updated["data"])
 
     assert list_check_dict_discrete == {
         "list_data": RuleGroup(
