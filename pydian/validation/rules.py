@@ -306,8 +306,6 @@ class RuleGroup(list):
         match other:
             case Rule() | RuleGroup():
                 res.append(other)
-            case type():
-                res.append(Rule.init_specific(other))
             case dict():
                 res.append(Rule.init_specific(dict))  # Type check
                 drs = _dict_to_rulegroup(other)
@@ -318,7 +316,7 @@ class RuleGroup(list):
                 res.append(lrs)
             case _:
                 if callable(other):
-                    res.append(Rule(other))
+                    res.append(Rule.init_specific(other))
                 else:
                     res.append(Rule(p.equals(other)))
         return res
