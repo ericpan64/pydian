@@ -7,7 +7,7 @@ from .rules import Rule, RuleGroup
 from .specific import IsType
 
 
-def create_pydantic_model(model_name: str, v_map: dict[str, Rule | RuleGroup]) -> type[BaseModel]:
+def create_pydantic_model(model_name: str, v_map: dict[str, Any]) -> type[BaseModel]:
     field_definitions: dict[str, Any] = {}
     field_validators: dict[str, classmethod] = {}
 

@@ -176,11 +176,13 @@ class Rule:
         return res
 
     def __and__(self, other: Rule | RuleGroup | Any):
+        if _check_rand(self, other):
+            return other.__rand__(self)
+
         return RuleGroup.combine(self, other)
 
     def __rand__(self, other: Rule | RuleGroup | Any):
-        # Order matters since it's a list
-        return RuleGroup.combine(other, self)
+        return NotImplemented
 
     def __or__(self, other: Rule | RuleGroup | Any):
         return RuleGroup.combine(self, other, RGC.AT_LEAST_ONE)
@@ -423,11 +425,13 @@ class RuleGroup(list):
         return f"<RuleGroup len={len(self)} n={self._n_rules} {self._constraint}>"
 
     def __and__(self, other: Rule | RuleGroup | Any):
+        if _check_rand(self, other):
+            return other.__rand__(self)
         return RuleGroup.combine(self, other)
 
     def __rand__(self, other: Rule | RuleGroup | Any):
         # Expect commutative
-        return self.__and__(other)
+        return NotImplemented
 
     def __or__(self, other: Rule | RuleGroup | Any):
         return RuleGroup.combine(self, other, RGC.AT_LEAST_ONE)
@@ -438,6 +442,17 @@ class RuleGroup(list):
 
 
 """ Helper Functions """
+
+
+def _check_rand(curr: Rule | RuleGroup, other: Rule | RuleGroup | Any):
+    """
+    Checks if there's a more specific `__and__` to call (`rand` is "right and" in this context)
+    """
+    try:
+        if hasattr(other, "__rand__") and other.__rand__(curr) is not NotImplemented:
+            return True
+    except:
+        return False
 
 
 def _contains_required_rule(rg: RuleGroup | Rule) -> bool:

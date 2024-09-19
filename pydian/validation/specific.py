@@ -69,6 +69,7 @@ class IsOptional(Rule):
             res = RuleGroup(items, RGC.AT_LEAST_ONE)
         else:
             # Use `OR` here since we want `AT_LEAST_ONE` condition
+            # ... this only happens for `IsOptional`... since it's special...
             res = super().__or__(other)
         return res
 

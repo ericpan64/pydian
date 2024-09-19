@@ -202,3 +202,19 @@ def test_validate(simple_data: dict[str, Any]) -> None:
     }
     v_ok_list_discrete = validate(simple_data, list_check_dict_discrete)
     assert isinstance(v_ok_list_discrete, Ok)
+
+
+def test_validation_readme_examples() -> None:
+    is_str = IsType(str)
+    assert is_str("Abc") == Ok((is_str, "Abc", True))
+    assert is_str(123) == Err((is_str, 123, False))
+
+    is_nonempty = lambda d: len(d) > 0  # `InRange(0)` also works here
+    is_nonempty_str = is_str & is_nonempty  # Creates a `RuleGroup`
+    assert isinstance(is_nonempty_str("Abc"), Ok)
+    assert isinstance(is_nonempty_str(""), Err)
+
+    valid_dict = {"a": {"b": is_nonempty_str & IsOptional()}}
+    assert isinstance(validate({"a": {"b": "Abc"}}, valid_dict), Ok)
+    assert isinstance(validate({"a": {"c": 123}}, valid_dict), Ok)
+    assert isinstance(validate({"a": {"b": ""}}, valid_dict), Err)

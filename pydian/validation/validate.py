@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from result import Err, Ok
 
@@ -8,7 +8,7 @@ from .rules import Rule, RuleGroup
 
 def validate(
     source: dict[str, Any],
-    validation_map: dict[str, Callable | dict[str, Any] | list[Any]],
+    validation_map: Mapping[str, Callable | dict[str, Any] | list[Any]],
 ) -> Ok[dict | list] | Err[list[tuple]]:
     """
     Performs valiudation on the `source` dict. Enforces corresponding `Rule`s and `RuleGroup`s
