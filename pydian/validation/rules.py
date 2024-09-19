@@ -4,6 +4,7 @@ from __future__ import (  # Used to recursively type annotate (e.g. `Rule` in `c
 
 import inspect
 from collections.abc import Callable, Collection, Iterable
+from copy import deepcopy
 from enum import Enum
 from typing import Any
 
@@ -39,7 +40,7 @@ class RGC(Enum):
     #       Would need to think through if they take generic callables, Rules, etc.
 
     ALL_REQUIRED_RULES = -2  # NOTE: This makes rules default _optional_
-    ALL_RULES = -1  # NOTE: This makes rules default _required_
+    ALL = -1  # NOTE: This makes rules default _required_
     ALL_WHEN_DATA_PRESENT = 0  # NOTE: This makes rules default _required when data is present_
     AT_LEAST_ONE = 1
     AT_LEAST_TWO = 2
@@ -63,6 +64,7 @@ class Rule:
     _fn: Callable = lambda _: Rule._raise_undefined_rule_err()
     _constraint: RC | None = None
     _key: str | None = None
+    _parent_key: str | None = None
 
     def __init__(
         self,
@@ -96,7 +98,10 @@ class Rule:
             curr_source = source
         try:
             # TODO: Handle list case (key = "[*]")
-            if self._key and "[*]" in self._key:
+            # FYI: First case is we get a list of values from `get("some_key[*]")`
+            #  Second case is we access a value at `some_key` that is already a list,
+            #   and we know that we want to address each value in the list (instead of list as a whole)
+            if (self._key and self._key.endswith("[*]")) or (self._parent_key == "[*]"):
                 assert isinstance(curr_source, list), "Err: did not get a `list` for `[*]` key!"
                 # Ok. We run the `_fn` for each item in the list, and return the results if all passed
                 #   If there's any fail, then exit early, and the last item is a fail
@@ -107,9 +112,9 @@ class Rule:
                     res.append(it_res)
                     is_all_truthy = is_all_truthy and bool(it_res)
                     if not is_all_truthy:
-                        break
-                if not is_all_truthy:
-                    raise RuntimeError(f"Got failure when evaluating item {len(res)}: {res[-1]}")
+                        raise RuntimeError(
+                            f"Got failure when evaluating item {len(res)}: {res[-1]}"
+                        )
             else:
                 res = self._fn(curr_source, *args)
             if res:
@@ -123,12 +128,12 @@ class Rule:
         #  So the function needs to be saved on a file
         #  See: https://stackoverflow.com/a/335159
         try:
-            return f"<Rule> {inspect.getsource(self._fn).strip()}, {tuple(c.cell_contents for c in self._fn.__closure__)}"  # type: ignore
+            return f"<Rule {self._fn.__name__} | {inspect.getsource(self._fn).strip()} | {tuple(c.cell_contents for c in self._fn.__closure__)}>"  # type: ignore
         except:
             try:
-                return f"<Rule> {inspect.getsource(self._fn).strip()}"
+                return f"<Rule {self._fn.__name__} | {tuple(c.cell_contents for c in self._fn.__closure__)}>"  # type: ignore
             except:
-                return f"<Rule> {self._fn}"
+                return f"<Rule {self._fn.__name__}>"
 
     def __hash__(self):
         return hash((self._fn, self._constraint, self._key))
@@ -145,13 +150,22 @@ class Rule:
         return NotImplemented
 
     @staticmethod
-    def init_specific(v: Any, constraint: RC | None = None, at_key: str | None = None) -> Rule:
+    def init_specific(
+        v: Any, constraint: RC | None = None, at_key: str | None = None
+    ) -> Rule | RuleGroup:
         """
         Generically returns a more specific rule when possible
         """
         # Don't re-wrap an existing Rule/RuleGroup
         if isinstance(v, Rule | RuleGroup):
             return v
+
+        # Handle list and dict cases
+        if isinstance(v, list):
+            return _list_to_rulegroup(v)
+
+        if isinstance(v, dict):
+            return _dict_to_rulegroup(v)
 
         # TODO: consider `InRange` (take range obj) and `InSet` (take set object)
         from .specific import IsType  # Import here to avoid circular import
@@ -193,15 +207,17 @@ class RuleGroup(list):
     #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
     #   rather we should infer that during parsing
     _key: str | None = None
+    _parent_key: str | None = None
 
     def __init__(
         self,
-        items: Rule | RuleGroup | Callable | Collection[Rule | RuleGroup | Callable] | None = None,
-        constraint: RGC = RGC.ALL_RULES,
+        items: Collection[Rule | RuleGroup | Callable] | Any | None = None,
+        constraint: RGC = RGC.ALL,
         at_key: str | None = None,
     ):
         self._key = at_key
         self._constraint = constraint
+        self._n_rules = 0
 
         # Type-check and handle items
         if items:
@@ -214,6 +230,7 @@ class RuleGroup(list):
                     # Add a new `Rule` wrapper if applicable
                     if callable(it):
                         it = Rule.init_specific(it)
+                        it._parent_key = at_key
                     else:
                         raise ValueError(
                             f"All items in a `RuleGroup` must be `Rule`s or `RuleGroup`s, got: {type(it)}"
@@ -226,6 +243,25 @@ class RuleGroup(list):
             super().__init__(res)
         else:
             super().__init__()
+
+    def __deepcopy__(self, memo):
+        """
+        Custom deepcopy to prevent problem with `_n_rules` counting
+        """
+        # Create a new instance without calling __init__
+        new_instance = RuleGroup.__new__(RuleGroup)
+        memo[id(self)] = new_instance
+
+        # Copy simple attributes
+        new_instance._key = self._key
+        new_instance._parent_key = self._parent_key
+        new_instance._constraint = self._constraint
+        new_instance._n_rules = self._n_rules
+
+        # Deep copy the list items
+        new_instance.extend(deepcopy(list(self), memo))
+
+        return new_instance
 
     def append(self, item: Rule | RuleGroup | Callable):
         if not (isinstance(item, Rule) or isinstance(item, RuleGroup)):
@@ -242,31 +278,35 @@ class RuleGroup(list):
     def extend(self, item: RuleGroup | Iterable[Rule | RuleGroup | Callable]):
         if isinstance(item, RuleGroup):
             self._n_rules += item._n_rules
+            # Copy-over key information if present (always override)
+            if item._key:
+                self._key = item._key
         super().extend(item)
 
     @staticmethod
     def combine(
         first: Rule | RuleGroup,
         other: Rule | RuleGroup | Any,
-        constraint: RGC = RGC.ALL_RULES,
+        constraint: RGC = RGC.ALL,
     ) -> RuleGroup:
         """
-        Combines a `RuleGroup` with another value. By default, all data is optional by default
+        Combines a `Rule | RuleGroup` with another value. By default, all data is optional by default
 
         Here are the expected cases:
-        1. & RuleGroup -> Make a new RuleGroup with both existing ones (i.e. add a nesting parent)
-        2. & Rule -> Add it to current RuleGroup
-        3. & type -> Add type check
-        4. & dict -> Add 1) type check, 2) contents of dict
-        5. & list -> Add 1) type check, 2) contents of list
-        6. & Callable -> Add the callable as a Rule
-        7. & some primitive -> Add an equality check for the primitive
+        1. & (Rule | RuleGroup) -> Make a new RuleGroup with both existing ones (i.e. add a nesting parent)
+        2. & type -> Add type check (IsType)
+        3. & dict -> Add 1) type check, 2) contents of dict
+        4. & list -> Add 1) type check, 2) contents of list (with `_parent_key=[*]`)
+        5. & Callable -> Add the callable as a Rule
+        6. & some primitive -> Add an equality check for the primitive
         """
-        if isinstance(other, RuleGroup):
-            return RuleGroup((first, other), constraint)
-        res = RuleGroup(first, constraint)
+        # Keep the nested structure if first is a RuleGroup
+        it: tuple[RuleGroup] | Rule | RuleGroup = (
+            (first,) if isinstance(first, RuleGroup) else first
+        )
+        res = RuleGroup(it, constraint)
         match other:
-            case Rule():
+            case Rule() | RuleGroup():
                 res.append(other)
             case type():
                 res.append(Rule.init_specific(other))
@@ -296,21 +336,11 @@ class RuleGroup(list):
           - Err((current RuleGroup, input, failed RuleGroup))
 
         If the `RuleGroup` is nested: the returned `RuleGroup` will maintain the original structure.
-
-        If there are nested `RuleGroup`s, then expect the inner-most failed `RuleGroup` to have
-          discrete information on why the case failed (i.e. the original nested structure is kept).
-
-          E.g. for a RuleGroup of: `[A, B, [C, D, E]]` and `B, D, E` fails,
-            expect: `Err([B, [D, E]])` as the return value.
-
-            I.e., we know that Rule `B` and RuleGroup `[C, D, E]` failed with `[D, E]` specifically
-            (and that information is retained as a RuleGroup)
-
-          E.g. for a RuleGroup of: `[A, [B, [C, D, E]]]` and `B, D, E` fails,
-            expect: `Err([[B, [D, E]]])` as the return value
         """
         # Apply key unnesting logic
         # NOTE: only when source is a dict. Design choice!
+        # NEXT STEP: TODO Bug is here -- when passing-down a list, it isn't getting indexed "into"...
+        #   ... need to think-through `[*]` handling DISCRETELY. NO ambiguity --> lots of time saved!
         if isinstance(source, dict) and self._key:
             curr_source = get(source, self._key)
         else:
@@ -318,25 +348,28 @@ class RuleGroup(list):
 
         # Run each rule and save results
         # NOTE: This nests results in a RuleGroup by default. For recursive calls, we'll unnest this below
-        rg_passed, rg_failed = RuleGroup(constraint=RGC.ALL_RULES), RuleGroup(
-            constraint=RGC.ALL_RULES
-        )
+        rg_passed, rg_failed = RuleGroup(constraint=RGC.ALL), RuleGroup(constraint=RGC.ALL)
         for curr_item in self:
-            # Handle list key case -- have each embedded item run over the entire list
-            if self._key and "[*]" == self._key:
-                curr_item._key = f"{curr_item._key}[*]" if curr_item._key else "[*]"
+            assert isinstance(
+                curr_item, Rule | RuleGroup
+            ), f"Expected <Rule | RuleGroup> whe calling RuleGroup, got {type(curr_item)}"
             # Run the rule(s)
+            # TODO: Need to DISTINGUISH between list case:
+            #    - We explicitly want to apply curr_item to each item in the list
+            # vs - We want to apply curr_item to the entire list
+            # Use some distinguishing factor (e.g. `_parent_key`?)
             curr_res = curr_item(curr_source, *args)
-            # Handle the different cases
+            # Save result based on cases
             match curr_item, curr_res:
                 case (Rule(), Ok()):
                     rg_passed.append(curr_item)
                 case (Rule(), Err()):
                     rg_failed.append(curr_item)
+                # For RuleGroup: take last item in Ok/Err tuple
                 case (RuleGroup(), Ok()):
-                    rg_passed.append(curr_res.ok_value[-1])
+                    rg_passed.append(curr_res.ok_value[-1])  # type: ignore
                 case (RuleGroup(), Err()):
-                    rg_failed.append(curr_res.err_value[-1])
+                    rg_failed.append(curr_res.err_value[-1])  # type: ignore
                 case _:
                     raise RuntimeError(
                         f"Unexpected type or result: {type(curr_item)}, {type(curr_res)}"
@@ -347,16 +380,12 @@ class RuleGroup(list):
             return Err((self, source, rg_failed))
 
         # Check result and return
-        res: Ok[RuleGroup] | Err[RuleGroup]
-        # NOTE: `_n_rules` is the total number of discrete rules (including nested).
-        #      Thus, for `ALL_RULES` we check every rule, and `AT_LEAST_x` we check top-level groups
+        res: Ok[tuple[RuleGroup, Any, RuleGroup]] | Err[tuple[RuleGroup, Any, RuleGroup]]
         passed_case = (self, source, rg_passed)
         failed_case = (self, source, rg_failed)
         match self._constraint:
-            case RGC.ALL_RULES:
-                # TODO make less strict -- if group sizes match
-                #   ... consider `ALL_RULES` -> `ALL` rename, so avoid pedantic case...
-                res = Ok(passed_case) if rg_passed._n_rules == self._n_rules else Err(failed_case)
+            case RGC.ALL:
+                res = Ok(passed_case) if len(rg_passed) == len(self) else Err(failed_case)
             case RGC.AT_LEAST_ONE | RGC.AT_LEAST_TWO | RGC.AT_LEAST_THREE:
                 res = (
                     Ok(passed_case)
@@ -381,7 +410,8 @@ class RuleGroup(list):
         return hash(tuple(self))
 
     def __repr__(self) -> str:
-        return f"<RuleGroup> {[r for r in self]}"
+        # TODO: Consider something less verbose
+        return f"<RuleGroup len={len(self)} n={self._n_rules} {self._constraint}>"
 
     def __and__(self, other: Rule | RuleGroup | Any):
         return RuleGroup.combine(self, other)
@@ -424,7 +454,7 @@ def _rulegroup_applies(rg: RuleGroup | Rule, source: dict[str, Any]) -> bool:
 
 def _list_to_rulegroup(
     l: list[Callable | Rule | RuleGroup | dict | list], key_prefix: str | None = None
-) -> RuleGroup | Rule:
+) -> RuleGroup:
     """
     Given a list, compress it into a single `RuleGroup`
       (or for the `[*]` case: a `Rule` containing a single `RuleGroup`)
@@ -433,28 +463,32 @@ def _list_to_rulegroup(
       For example: `{ 'k': [ str, bool ]}` -- at key 'k', it can contain a list `str` or `bool`
       (for more specific constraints: use a nested `RuleGroup`)
     """
-    # TODO: Check the key is getting applied correctly
+    # NOTE: by default, elements in a list are considered joined by `OR` logic
     res = RuleGroup(constraint=RGC.AT_LEAST_ONE, at_key=key_prefix)
+    # NOTE: by default, calling this will always add a `[*]`
+    #   to make sure rules are applied over the list
+    res._parent_key = "[*]"
     for it in l:
-        # TODO: does this even work / is this even needed?
-        at_key = f"[*]"  # Should be applied to every item in the list
+        # TODO: does this even work as-expected? Not sure for atomic `Rule`s...
         match it:
-            case Rule():
-                it._key = at_key
-                res.append(it)
-            case RuleGroup():
-                # Wrap in a `Rule` so the `[*]` logic is applied
-                res = Rule(it, at_key=at_key)  # type: ignore
+            case Rule() | RuleGroup():
+                it._parent_key = f"{key_prefix}{res._parent_key}" if key_prefix else "[*]"
+                if isinstance(it, Rule):
+                    res.append(it)
+                else:
+                    # In this case, avoid the double-nesting and just overwrite key info
+                    res = it
             case dict():
-                res.append(_dict_to_rulegroup(it, at_key))
+                res.extend(_dict_to_rulegroup(it))
             case list():
-                res.append(_list_to_rulegroup(it, at_key))
+                res.extend(_list_to_rulegroup(it))
             case _:
                 if callable(it):
-                    res.append(Rule.init_specific(it, at_key=at_key))
+                    new_rule = Rule.init_specific(it)
                 else:
-                    # Exact value check
-                    res.append(Rule(p.equals(it), at_key=at_key))
+                    new_rule = Rule(p.equals(it))  # Exact value check
+                new_rule._parent_key = f"{key_prefix}{res._parent_key}" if key_prefix else "[*]"
+                res.append(new_rule)
     return res
 
 

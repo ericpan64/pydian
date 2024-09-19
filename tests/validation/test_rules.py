@@ -117,7 +117,7 @@ def test_rulegroup_constraint() -> None:
     PASS_TWO_STR = "Abc"  # Passes the required rule
     PASS_NONE = False
 
-    rg_all = RuleGroup(all_rules, RGC.ALL_RULES)
+    rg_all = RuleGroup(all_rules, RGC.ALL)
     assert rg_all(PASS_ALL_STR) == Ok((rg_all, PASS_ALL_STR, RuleGroup(all_rules)))
     assert rg_all(PASS_ONE_STR) == Err(
         (rg_all, PASS_ONE_STR, RuleGroup([contains_digit, starts_with_upper_required]))
@@ -245,13 +245,13 @@ def test_nested_rulegroup() -> None:
     PASS_ONE_STR = "abc"
     PASS_NONE = ""
 
-    # All rules are `RGC.ALL_RULES` by default
+    # All rules are `RGC.ALL` by default
     rg_str_nonempty = RuleGroup([is_str, is_nonempty])
     rg_notlist_upper = RuleGroup([is_nonempty, starts_with_upper])
 
     # NOTE: returns groups of `RuleGroup`s within an outer `RuleGroup`.
     nested_rg = RuleGroup([rg_str_nonempty, rg_notlist_upper], RGC.AT_LEAST_ONE)
-    expected_err_rg = RuleGroup([RuleGroup([is_nonempty]), rg_notlist_upper], RGC.ALL_RULES)
+    expected_err_rg = RuleGroup([RuleGroup([is_nonempty]), rg_notlist_upper], RGC.ALL)
 
     assert nested_rg(PASS_ALL_STR) == Ok(
         (nested_rg, PASS_ALL_STR, RuleGroup([rg_str_nonempty, rg_notlist_upper]))
@@ -328,8 +328,7 @@ def test_combine_rulegroup() -> None:
     # with Rules
     combined_rg_r = some_rulegroup & some_other_rule
     some_rg_copy = deepcopy(some_rulegroup)
-    some_rg_copy.append(some_other_rule)
-    assert combined_rg_r == some_rg_copy
+    assert combined_rg_r == RuleGroup([some_rg_copy, some_other_rule])
 
     # with RuleGroup
     combined_rg_rg = some_rulegroup & some_other_rulegroup
@@ -339,8 +338,7 @@ def test_combine_rulegroup() -> None:
     combined_rg_dict = some_rulegroup & {"A": Rule(p.gt(1)), "B": Rule(p.lt(2))}
     assert combined_rg_dict == RuleGroup(
         [
-            some_rulegroup[0],
-            some_rulegroup[1],
+            some_rulegroup,
             IsType(dict),
             RuleGroup([Rule(p.gt(1), at_key="A"), Rule(p.lt(2), at_key="B")]),
         ]
@@ -351,8 +349,7 @@ def test_combine_rulegroup() -> None:
     combined_rg_list = some_rulegroup & [str, bool]  # a list[str | bool]
     assert combined_rg_list == RuleGroup(
         [
-            some_rulegroup[0],
-            some_rulegroup[1],
+            some_rulegroup,
             IsType(list),
             RuleGroup([IsType(str), IsType(bool)], RGC.AT_LEAST_ONE),
         ]
@@ -361,11 +358,9 @@ def test_combine_rulegroup() -> None:
     # with callable
     combined_rg_callable = some_rulegroup & int
     some_rg_copy = deepcopy(some_rulegroup)
-    some_rg_copy.append(int)
-    assert combined_rg_callable == some_rg_copy
+    assert combined_rg_callable == RuleGroup([some_rg_copy, IsType(int)])
 
     # with primitive
     combined_r_primitive = some_rulegroup & Rule(p.equals(5))
     some_rg_copy = deepcopy(some_rulegroup)
-    some_rg_copy.append(p.equals(5))
-    assert combined_r_primitive == some_rg_copy
+    assert combined_r_primitive == RuleGroup([some_rg_copy, Rule(p.equals(5))])

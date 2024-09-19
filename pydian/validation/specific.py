@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any
+from typing import Any, Callable
 
 import pydian.partials as p
 
@@ -17,7 +17,7 @@ class IsRequired(Rule):
         # For each rule, make it required
         super().__init__(p.not_equivalent(None), RC.REQUIRED, at_key=at_key)
 
-    def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
+    def __and__(self, other: Rule | RuleGroup | Any, swap_order: bool = False) -> Rule | RuleGroup:
         """
         Returns a `RuleGroup` with the `REQUIRED` constraint applied to the single rule
         """
@@ -28,50 +28,51 @@ class IsRequired(Rule):
             case _:
                 # Check callable case here (cast into a `Rule`)
                 if not isinstance(other, RuleGroup) and callable(other):
-                    res = Rule.init_specific(other, RC.REQUIRED)
+                    res = Rule.init_specific(other, RC.REQUIRED)  # type: ignore
                 else:
-                    res = super().__and__(other)
+                    if swap_order:
+                        res = super().__rand__(other)
+                    else:
+                        res = super().__and__(other)
         return res
 
     def __rand__(self, other):
-        return self.__and__(other)
+        return self.__and__(other, swap_order=True)
 
 
 class IsOptional(Rule):
     """
-    When combined with another rule, removes the Required constraint.
+    Optional: can be `None`, but validate if it's there.
 
-    Adds a dummy rule that doesn't do anything explicitly, though might loosen RuleGroup constraints
-      (e.g. `AT_LEAST_ONE` will always pass since we're adding one rule that always passes)
+    When combined with another rule, allows the case where the field is `None`.
+
+    NOTE: This doesn't make sense to run on its own (unless you want a `None` check)
     """
 
     def __init__(self, at_key: str | None = None):
         # Initialize with dummy placeholder rule
-        super().__init__(lambda _: True, at_key=at_key)
+        super().__init__(p.equivalent(None), at_key=at_key)
 
-    def __and__(self, other: Rule | RuleGroup | Any) -> Rule | RuleGroup:
+    def __and__(
+        self, other: Rule | RuleGroup | Callable | type | Any, swap_order: bool = False
+    ) -> Rule | RuleGroup:
         """
-        For a `Rule`: remove `REQUIRED`
-        For a `RuleGroup`: set to `ALL_WHEN_DATA_PRESENT` -- this means it's optional, but validate if-present
+        Wraps in a `RuleGroup` where only 1 thing needs to pass (includes optional `None` check)
+          This makes sure that condition is still run when data is present
         """
-        match other:
-            case Rule():
-                res = deepcopy(other)
-                if res._constraint is RC.REQUIRED:
-                    res._constraint = None
-            case RuleGroup():
-                # Loops through and removes the `IsRequired` rule
-                res = deepcopy(other)  # type: ignore
-                try:
-                    res.remove(IsRequired())  # type: ignore
-                except ValueError:
-                    pass
-            case _:
-                res = super().__and__(other)
+        # Wrap in a `RuleGroup` that has `None` equivalence as passing condition
+        if callable(other):
+            if swap_order:
+                items = [Rule.init_specific(other), self]
+            else:
+                items = [self, Rule.init_specific(other)]
+            res = RuleGroup(items, RGC.AT_LEAST_ONE)
+        else:
+            res = super().__and__(other)
         return res
 
     def __rand__(self, other: Rule | RuleGroup | Any):
-        return self.__and__(other)
+        return self.__and__(other, True)
 
 
 class InRange(Rule):

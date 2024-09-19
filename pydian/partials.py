@@ -64,6 +64,17 @@ def do(func: Callable, *args: Any, **kwargs: Any) -> ApplyFunc:
     return lambda x: func(x, *args, **kwargs)
 
 
+def echo(v: Any) -> ApplyFunc:
+    """
+    Function that returns the value exactly as-is
+    """
+    return lambda _: v
+
+
+def length(n: int) -> ApplyFunc:
+    return lambda v: len(v) == n
+
+
 def add(value: Any, before: bool = False) -> ApplyFunc:
     if before:
         return lambda v: value + v

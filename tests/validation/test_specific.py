@@ -25,10 +25,6 @@ def test_is_required() -> None:
     is_str_required = IsRequired() & is_str
     assert is_str_required._constraint
 
-    # Test `IsOptional` while we're here!
-    is_str_not_required = IsOptional() & is_str_required
-    assert is_str_not_required._constraint is None
-
     # Works for a `RuleGroup`
     is_nonempty_str = RuleGroup([p.isinstance_of(str), p.not_equal("")])
     combined_rg: RuleGroup = IsRequired() & is_nonempty_str  # type: ignore
@@ -38,6 +34,20 @@ def test_is_required() -> None:
     # Works on arbitrary callable
     is_str_req = IsRequired() & str
     assert isinstance(is_str_req, Rule) and is_str_req._constraint is RC.REQUIRED
+
+
+def test_is_optional() -> None:
+    is_opt = IsOptional()
+    assert isinstance(is_opt(None), Ok)
+    assert isinstance(
+        is_opt("value"), Err
+    )  # This might be a bit misleading, though don't expect this to matter...
+
+    # Optional: can be `None`, but validate if it's there
+    is_opt_str = IsOptional() & IsType(str)
+    assert isinstance(is_opt_str(None), Ok)
+    assert isinstance(is_opt_str("string"), Ok)
+    assert isinstance(is_opt_str(123), Err)
 
 
 def test_is_type() -> None:
