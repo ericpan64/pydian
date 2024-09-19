@@ -64,7 +64,7 @@ class Rule:
     _fn: Callable = lambda _: Rule._raise_undefined_rule_err()
     _constraint: RC | None = None
     _key: str | None = None
-    _parent_key: str | None = None
+    _iter_over_input: bool | None = None
 
     def __init__(
         self,
@@ -98,10 +98,9 @@ class Rule:
             curr_source = source
         try:
             # TODO: Handle list case (key = "[*]")
-            # FYI: First case is we get a list of values from `get("some_key[*]")`
-            #  Second case is we access a value at `some_key` that is already a list,
-            #   and we know that we want to address each value in the list (instead of list as a whole)
-            if (self._key and self._key.endswith("[*]")) or (self._parent_key == "[*]"):
+            # FYI: First case is we get explicitly want to process all items in list
+            #  Second case is we assume we want to process all items in the list (based on parent)
+            if self._iter_over_input:
                 assert isinstance(curr_source, list), "Err: did not get a `list` for `[*]` key!"
                 # Ok. We run the `_fn` for each item in the list, and return the results if all passed
                 #   If there's any fail, then exit early, and the last item is a fail
@@ -207,7 +206,7 @@ class RuleGroup(list):
     #   e.g. a user-specified `RuleGroup` shouldn't need to specify `_key` for each rule,
     #   rather we should infer that during parsing
     _key: str | None = None
-    _parent_key: str | None = None
+    _iter_over_input: bool | None = None
 
     def __init__(
         self,
@@ -230,7 +229,6 @@ class RuleGroup(list):
                     # Add a new `Rule` wrapper if applicable
                     if callable(it):
                         it = Rule.init_specific(it)
-                        it._parent_key = at_key
                     else:
                         raise ValueError(
                             f"All items in a `RuleGroup` must be `Rule`s or `RuleGroup`s, got: {type(it)}"
@@ -254,7 +252,7 @@ class RuleGroup(list):
 
         # Copy simple attributes
         new_instance._key = self._key
-        new_instance._parent_key = self._parent_key
+        new_instance._iter_over_input = self._iter_over_input
         new_instance._constraint = self._constraint
         new_instance._n_rules = self._n_rules
 
@@ -296,7 +294,7 @@ class RuleGroup(list):
         1. & (Rule | RuleGroup) -> Make a new RuleGroup with both existing ones (i.e. add a nesting parent)
         2. & type -> Add type check (IsType)
         3. & dict -> Add 1) type check, 2) contents of dict
-        4. & list -> Add 1) type check, 2) contents of list (with `_parent_key=[*]`)
+        4. & list -> Add 1) type check, 2) contents of list (with `_iter_over_input`)
         5. & Callable -> Add the callable as a Rule
         6. & some primitive -> Add an equality check for the primitive
         """
@@ -337,10 +335,7 @@ class RuleGroup(list):
 
         If the `RuleGroup` is nested: the returned `RuleGroup` will maintain the original structure.
         """
-        # Apply key unnesting logic
-        # NOTE: only when source is a dict. Design choice!
-        # NEXT STEP: TODO Bug is here -- when passing-down a list, it isn't getting indexed "into"...
-        #   ... need to think-through `[*]` handling DISCRETELY. NO ambiguity --> lots of time saved!
+        # Apply key unnesting logic only when source is a dict. Design choice!
         if isinstance(source, dict) and self._key:
             curr_source = get(source, self._key)
         else:
@@ -353,12 +348,28 @@ class RuleGroup(list):
             assert isinstance(
                 curr_item, Rule | RuleGroup
             ), f"Expected <Rule | RuleGroup> whe calling RuleGroup, got {type(curr_item)}"
+
+            # Pass-down parent iter info
+            if isinstance(curr_source, list) and self._iter_over_input:
+                curr_item._iter_over_input = True
+
             # Run the rule(s)
-            # TODO: Need to DISTINGUISH between list case:
-            #    - We explicitly want to apply curr_item to each item in the list
-            # vs - We want to apply curr_item to the entire list
-            # Use some distinguishing factor (e.g. `_parent_key`?)
-            curr_res = curr_item(curr_source, *args)
+            if self._iter_over_input and isinstance(curr_source, list):
+                # Ok. We run the `_fn` for each item in the list, and return the results if all passed
+                #   If there's any fail, then exit early, and the last item is a fail
+                is_all_truthy = True
+                iter_list = []
+                for it in curr_source:
+                    it_res = curr_item(it)
+                    iter_list.append(it_res)
+                    is_all_truthy = is_all_truthy and bool(it_res)
+                    if not is_all_truthy:
+                        raise RuntimeError(
+                            f"Got failure when evaluating item {len(iter_list)}: {iter_list[-1]}"
+                        )
+                curr_res = Ok(("[*]", curr_source, curr_item))
+            else:
+                curr_res = curr_item(curr_source, *args)  # type: ignore
             # Save result based on cases
             match curr_item, curr_res:
                 case (Rule(), Ok()):
@@ -463,16 +474,16 @@ def _list_to_rulegroup(
       For example: `{ 'k': [ str, bool ]}` -- at key 'k', it can contain a list `str` or `bool`
       (for more specific constraints: use a nested `RuleGroup`)
     """
-    # NOTE: by default, elements in a list are considered joined by `OR` logic
-    res = RuleGroup(constraint=RGC.AT_LEAST_ONE, at_key=key_prefix)
+    # NOTE: by default, elements in a list are considered joined by `AND` logic
+    res = RuleGroup(constraint=RGC.ALL, at_key=key_prefix)
     # NOTE: by default, calling this will always add a `[*]`
     #   to make sure rules are applied over the list
-    res._parent_key = "[*]"
+    res._iter_over_input = True
     for it in l:
         # TODO: does this even work as-expected? Not sure for atomic `Rule`s...
         match it:
             case Rule() | RuleGroup():
-                it._parent_key = f"{key_prefix}{res._parent_key}" if key_prefix else "[*]"
+                it._iter_over_input = True
                 if isinstance(it, Rule):
                     res.append(it)
                 else:
@@ -487,7 +498,7 @@ def _list_to_rulegroup(
                     new_rule = Rule.init_specific(it)
                 else:
                     new_rule = Rule(p.equals(it))  # Exact value check
-                new_rule._parent_key = f"{key_prefix}{res._parent_key}" if key_prefix else "[*]"
+                new_rule._iter_over_input = True
                 res.append(new_rule)
     return res
 

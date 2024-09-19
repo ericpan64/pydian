@@ -68,7 +68,8 @@ class IsOptional(Rule):
                 items = [self, Rule.init_specific(other)]
             res = RuleGroup(items, RGC.AT_LEAST_ONE)
         else:
-            res = super().__and__(other)
+            # Use `OR` here since we want `AT_LEAST_ONE` condition
+            res = super().__or__(other)
         return res
 
     def __rand__(self, other: Rule | RuleGroup | Any):

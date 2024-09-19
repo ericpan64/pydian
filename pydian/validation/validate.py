@@ -7,7 +7,7 @@ from .rules import Rule, RuleGroup
 
 
 def validate(
-    source: dict[str, Any] | list[Any],
+    source: dict[str, Any],
     validation_map: dict[str, Callable | dict[str, Any] | list[Any]],
 ) -> Ok[dict | list] | Err[list[tuple]]:
     """
@@ -15,27 +15,7 @@ def validate(
       at a given key.
 
     NOTE: This _does_ mutate the corresponding `validation_map` (specifically adds info to the
-      `_parent_key` field of Rule | RuleGroup), so it's _not_ a pure function.
-    """
-    res = _validate_recursive(source, validation_map, None)
-    if isinstance(res, Ok):
-        return Ok(source)
-    else:
-        return res
-
-
-def _validate_recursive(
-    source: dict[str, Any] | list[Any],
-    validation_map: dict[str, Callable | dict[str, Any] | list[Any]],
-    _parent_key: str | None = None,
-) -> Ok[tuple] | Err[list[tuple]]:
-    """
-    Ok. Recurse through `source`. Set `_parent_key` at the start of the function
-      The current key is `_key`, and `_parent_key` is the keys that came before the current call
-
-      The `_parent_key` is saved for debugging, and also identifying the list case. That's it
-
-    And as NOTE-ed, this mutates items in `validation_map` (just `_parent_key`)
+      `_iter_over` field of Rule | RuleGroup), so it's _not_ a pure function.
     """
     # Try applying each rule at the given key
     failed_r_rg: list[tuple] = []
@@ -44,8 +24,6 @@ def _validate_recursive(
         curr_source = get(source, k, default=None)
         match v:
             case Rule() | RuleGroup():
-                # Execute rules, then append `Err` if it comes up
-                v._parent_key = f"{_parent_key}.{k}" if _parent_key else k
                 res = v(curr_source)
             case dict() | list():
                 if curr_source is None:
@@ -54,9 +32,9 @@ def _validate_recursive(
                 if isinstance(v, list):
                     # TODO: this needs to pass a dict, make sure the call here is correct
                     v_dict = {k: v}
-                    res = _validate_recursive(curr_source, v_dict, f"{k}[*]")  # type: ignore
+                    res = validate(curr_source, v_dict)  # type: ignore
                 else:
-                    res = _validate_recursive(curr_source, v, k)  # type: ignore
+                    res = validate(curr_source, v)  # type: ignore
             case _:
                 if callable(v):
                     # Wrap in a `Rule` so it returns Ok/Err
@@ -71,4 +49,4 @@ def _validate_recursive(
     if failed_r_rg:
         return Err(failed_r_rg)
 
-    return Ok((source, None, None))
+    return Ok(source)
