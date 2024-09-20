@@ -1,5 +1,6 @@
 import traceback
-from typing import Any, Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any
 
 from .globs import SharedMapperState, _Global_Mapper_State_Dict
 from .lib.types import DROP, KEEP, ApplyFunc, ConditionalCheck
@@ -36,6 +37,8 @@ def get(
     - `strict`: Use to throw `ValueError` instead of returning `None` (also available at `Mapper`-level)
     """
     # Grab context from `Mapper` classes (if relevant)
+    #   This exists to allow for `strict` mode to be set for all `get` calls that the `Mapper` has
+    #   (without needing to specify it for every get call)
     mapper_state = _get_global_mapper_config()
     # For `strict`, prefer Mapper setting or take local setting
     strict = (mapper_state.strict if mapper_state else None) or strict

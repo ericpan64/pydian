@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 
 import jmespath
 
-DL = TypeVar("DL", dict[str, Any], list[Any])
+DL = TypeVar("DL", dict[str, Any], list[Any], Any)
 
 
 def remove_empty_values(input: DL) -> DL:

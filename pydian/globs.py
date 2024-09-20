@@ -41,7 +41,7 @@ class ImmutableDict(dict, Generic[K, V]):
         super().__setitem__(key, value)
 
     def update(self, *args, **kwargs):
-        raise ValueError("ImmutableDict doesn't allow updates.")
+        raise RuntimeError("ImmutableDict doesn't allow updates.")
 
     def __delitem__(self, key):
         raise ValueError("ImmutableDict doesn't allow deletion of keys.")

@@ -1,11 +1,18 @@
-# Pydian - pythonic data interchange
+# pydian - pythonic data interchange
 
-Pydian is a pure Python library for readable and repeatable data mappings. Pydian reduces boilerplate for data manipulation and provides a framework for expressive data wrangling.
+pydian is a pure Python library for readable and repeatable data mappings. pydian reduces boilerplate for data manipulation and provides a framework for expressive data wrangling.
 
-Using Pydian, developers can collaboratively and incrementally write data mappings that are expressive, safe, and reusable. Similar to how libraries like React were able to streamline UI components for frontend development, Pydian aims to streamline data transformations for backend development.
+Using pydian, developers can collaboratively and incrementally write data mappings that are expressive, safe, and reusable. Similar to how libraries like React were able to streamline UI components for frontend development, pydian aims to streamline data transformations for backend development.
 
-## `get` specific data, then do stuff
+## Overview
+pydian currently offers an ergonomic API for:
+- Working with `dict` data
+- Working with `DataFrame` data
+- Validating `dict` data using the `Rule` and `RuleGroup` framework
 
+All the core API functions are pure transforms, so you can trust that code will be consistent between runs and when sharing! For any exceptions, the function README will have an explicit NOTE.
+
+## Example
 The key idea behind is the following: `get` data from an object, and if it succeeded, do stuff to it.
 
 ```python
@@ -37,65 +44,40 @@ assert get(payload, 'list_of_objects[*].val') == [1,2,3]
 assert get(payload, 'some.deeply.nested[100].value', apply=str.upper) == None
 ```
 
-That's it! Additional constructs are added for more complex mapping operations (`Mapper`).
+Additional constructs are added for more complex data operations (`Mapper`, `select` on Dataframes, `validate`, etc.).
 
-What makes this different from regular operations? Pydian is designed with readibility and reusability in mind:
-1. By default, on failure `get` returns `None`. This offers a more flexible alternative to direct indexing (e.g. `array[0]`).
-2. For a specific field, you can concisely fit all of your functional logic into _one line_ of Python. This improves readability and maintainability.
-3. All functions are "pure" and can be effectively reused and imported without side effects. This encapsulates behavior and promotes reusability.
+See more examples in the [comprehensive tests](./tests) (definitely feel empowered to add more as well)!
 
-## Developer-friendly API
 
-If you are working with `dict`s, you can use:
-- A [`get`](./pydian/dicts.py) function with [JMESPath](https://jmespath.org/) key syntax. Chain operations on success, else continue with `None`
-- A [`Mapper`](./pydian/mapper.py) class that performs post-processing cleanup on ["empty" values](./pydian/lib/util.py). For nuanced edge cases, condtionally [`DROP`](./pydian/lib/types.py) fields or [`KEEP`](./pydian/lib/util.py) specific values
+## API Overview
 
-(Experimental) If you're tired of writing one-off `lambda` functions, consider using:
-- The `pydian.partials` module which provides (possibly) common 1-input, 1-output functions (`import pydian.partials as p`). A generic `p.do` wrapper creates a partial function which defaults parameters starting from the second parameter (`from functools import partial` starts from the first parameter.)
+The API is designed to be developer-friendly, prioritizing ergonomics and reliability (speed is decent, though be sure to benchmark your use-case).
 
-(Experimental) If you are working with `pl.DataFrame`s, you can use:
-- A [`select`](./pydian/dataframes.py) function simple SQL-like syntax (`,`-delimited, `*` to get all, `:` for row filtering, `-> [ ... ]` for dict-unnesting, `-> { 'new_name': ... }` for renaming, `+>` for using `->` and also keep the original column)
-- Some functions for creating new dataframes (`join`, `union`, `group_by`)
+### Implemented
+- `pydian` -- working with `dict[str,Any]`
+  - `get` -- grab data using JMESPath syntax
+  - `Mapper` -- cleans-up empty values and allows complex logic with `DROP` and `KEEP`
+- `pydian.partials` -- module with a bunch of common one-line functions. Good for codebase consistency
+  - Suggested use: `import pydian.partials as p`
+- `pydian.dataframes` -- working with `polars.DataFrame` (convert from pandas using the polars API)
+  - NOTE: install this with `pip install "pydian[dataframes]"`
+  - `select` -- grab dict data using simple SQL-like string syntax
+    - `,`-delimited columns, `*` to get all, `:` for row filtering, `-> [ ... ]` for dict-unnesting, `-> { 'new_name': ... }` for renaming, `+>` for using `->` and also keep the original column
+  - `join`, `union`, and `group_by` functions with SQL-like string syntax
+- `pydian.validation` -- validating `dict[str, Any]` data via composition (interops with pydantic)
+  - `Rule` and `RuleGroup` classes to group functions logically, and wraps results in `Ok` or `Err`
+  - `validate` dict data using expressive, composible syntax
 
-> Note: the DataFrame module is not included by default. To install, use:
-> `pip install "pydian[dataframes]"`
+### Future work
+The following are in-progress:
+- `pydian.pipes` -- Module for running pipeline of operations
+- `pydian.standards` -- Module for defining data standards and sharing mappings
+- `pydian.io` -- Module for disk/database IO
+- `pydian.ml` -- Module for ML training and inference
+- Implement core library in lower-level language (e.g. Rust)
+  - Port to JS
 
-## Examples
-
-`dict`s: See [`get` tests](./tests/test_dicts.py) and [`Mapper` tests](./tests/test_mapper.py)
-
-(Experimental) `pl.DataFrame`s: See [`select` tests](./tests/test_dataframes.py)
-
-(Experimental) `pydian.partials`: See [`pydian.partial` tests](./tests/test_partials.py) or snippet below:
-
-```python
-from pydian import get
-import pydian.partials as p
-
-# Arbitrary example
-source = {
-    'some_values': [
-        250,
-        350,
-        450
-    ]
-}
-
-# Standardize how the partial functions are written for simpler management
-assert p.equals(1)(1) == True
-assert p.equivalent(False)(False) == True
-assert get(source, 'some_values', apply=p.index(0), only_if=p.contains(350)) == 250
-assert get(source, 'some_values', apply=p.index(0), only_if=p.contains(9000)) == None
-assert get(source, 'some_values', apply=p.index(1)) == 350
-assert get(source, 'some_values', apply=p.keep(2)) == [250, 350]
-```
-
-## Future Work
-
-After 1.0, Pydian will be considered done (barring other community contributions 😃)
-
-There may be further language support in the future (e.g. JS, Rust, Go, Julia, etc.) which could make this pattern even more useful (though still very much tbd!)
 
 ## Contact
 
-Please submit a GitHub Issue for any bugs + feature requests 🙏
+Please submit a GitHub Issue for any bugs + feature requests 🙌 🙏

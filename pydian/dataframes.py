@@ -1,6 +1,7 @@
 import ast
 import re
-from typing import Any, Callable, Iterable, Literal
+from collections.abc import Iterable
+from typing import Any, Callable, Literal
 
 import polars as pl
 from result import Err

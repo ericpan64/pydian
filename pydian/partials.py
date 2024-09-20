@@ -1,6 +1,9 @@
+from collections.abc import Callable, Container, Iterable, Reversible
 from functools import partial
 from itertools import islice
-from typing import Any, Callable, Container, Iterable, Reversible, TypeAlias, TypeVar
+from typing import Any, Type, TypeVar
+
+from result import Err, Ok
 
 import pydian
 from pydian.lib.types import DROP, ApplyFunc, ConditionalCheck
@@ -17,7 +20,7 @@ def get(
     only_if: ConditionalCheck | None = None,
     drop_level: DROP | None = None,
     flatten: bool | None = None,
-):
+) -> ApplyFunc:
     """
     Partial wrapper around the Pydian `get` function
     """
@@ -32,6 +35,21 @@ def get(
     return partial(pydian.get, **kwargs)
 
 
+def pipe(*funcs: ApplyFunc) -> ApplyFunc:
+    """
+    Custom wrapper that applies the functions in-order and returns a result
+    """
+
+    # TODO: Make this result type, and also be ergonomic for the user!
+    #       Think through with pipeline module (i.e. graceful failure case)
+    def run_pipe(val: Any) -> Any:
+        for func in funcs:
+            val = func(val)
+        return val
+
+    return partial(run_pipe)  # TODO: I don't think I need the `partial` here, test to confirm
+
+
 """
 Generic Wrappers
 """
@@ -44,6 +62,17 @@ def do(func: Callable, *args: Any, **kwargs: Any) -> ApplyFunc:
     Starts at the second parameter when using *args (as opposed to the first).
     """
     return lambda x: func(x, *args, **kwargs)
+
+
+def echo(v: Any) -> ApplyFunc:
+    """
+    Function that returns the value exactly as-is
+    """
+    return lambda _: v
+
+
+def length(n: int) -> ApplyFunc:
+    return lambda v: len(v) == n
 
 
 def add(value: Any, before: bool = False) -> ApplyFunc:
@@ -137,6 +166,10 @@ def not_contains(value: Any) -> ConditionalCheck:
 
 def not_contained_in(container: Container) -> ConditionalCheck:
     return lambda v: v not in container
+
+
+def isinstance_of(type_: Type) -> ConditionalCheck:
+    return lambda v: isinstance(v, type_)
 
 
 """
