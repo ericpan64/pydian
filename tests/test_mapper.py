@@ -4,6 +4,7 @@ import pytest
 
 from pydian import Mapper, get
 from pydian.lib.types import DROP, KEEP
+from pydian.mapper import mapping_context
 
 
 def test_drop(simple_data: dict[str, Any]) -> None:
@@ -123,18 +124,19 @@ def test_strict(simple_data: dict[str, Any]) -> None:
             "CASE_missing": get(d, "key.nope.not.there"),
         }
 
-    strict_mapper = Mapper(mapping, strict=True)
-    with pytest.raises(ValueError) as exc_info:
-        strict_mapper(source)
+    # Strict case
+    with mapping_context(strict=True):
+        mapper = Mapper(mapping)
+        with pytest.raises(ValueError) as exc_info:
+            mapper(source)
 
-    mapper = Mapper(mapping, strict=False)
-
+    # Not strict case
     assert mapper(source) == {
         "CASE_parent_keep": {"CASE_curr_keep": {"id": get(source, "data.patient.id")}}
     }
 
     # Test `strict` flag with specific `get` calls
-    def strict_get_mapping(d: dict[str, Any]) -> dict[str, Any]:
+    def get_mapping(d: dict[str, Any]) -> dict[str, Any]:
         return {
             "CASE_parent_keep": {
                 "CASE_curr_drop": {
@@ -146,15 +148,14 @@ def test_strict(simple_data: dict[str, Any]) -> None:
             "CASE_missing": get(d, "key.nope.not.there"),
         }
 
-    strict_get_mapper = Mapper(strict_get_mapping, strict=True)
-    get_mapper = Mapper(strict_get_mapping, strict=False)
+    get_mapper = Mapper(get_mapping)
+    with mapping_context(strict=True):
+        with pytest.raises(ValueError) as exc_info:
+            get_mapper(source)
+    get_mapper(source)  # TODO: Add assert
 
-    with pytest.raises(ValueError) as exc_info:
-        get_mapper(source)
-        strict_get_mapper(source)
 
-
-def test_script_deliberate_none() -> None:
+def test_strict_deliberate_none() -> None:
     source = {
         "has_None": None,
         "nested_None": {"has_None": None, "has_value": "value"},
@@ -175,19 +176,21 @@ def test_script_deliberate_none() -> None:
             "CASE_keep_None_list_nested": get(d, "nested_list_None.some_list[0].has_None"),
         }
 
-    mapper = Mapper(mapping_success, strict=True, remove_empty=False)
+    mapper = Mapper(mapping_success, remove_empty=False)
 
-    assert mapper(source) == {
-        "CASE_keep_None": None,
-        "CASE_keep_None_nested": None,
-        "CASE_keep_None_list": None,
-        "CASE_keep_None_list_nested": None,
-    }
+    with mapping_context(strict=True):
+        assert mapper(source) == {
+            "CASE_keep_None": None,
+            "CASE_keep_None_nested": None,
+            "CASE_keep_None_list": None,
+            "CASE_keep_None_list_nested": None,
+        }
 
     def mapping_err(d: dict[str, Any]) -> dict[str, Any]:
         return {"CASE_keep_None": get(d, "has_None"), "CASE_throw_err": get(d, "key.not.found")}
 
-    err_mapper = Mapper(mapping_err, strict=True)
+    err_mapper = Mapper(mapping_err)
 
-    with pytest.raises(ValueError) as exc_info:
-        err_mapper(source)
+    with mapping_context(strict=True):
+        with pytest.raises(ValueError) as exc_info:
+            err_mapper(source)

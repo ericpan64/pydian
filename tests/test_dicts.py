@@ -4,7 +4,7 @@ import pytest
 
 import pydian.partials as p
 from pydian import get
-from pydian.dicts import drop_keys
+from pydian.lib.util import drop_keys
 
 
 def test_get(simple_data: dict[str, Any]) -> None:
