@@ -1,9 +1,10 @@
-import base64
 from collections.abc import Collection
 from itertools import chain
-from typing import Any, TypeVar
+from typing import Any, Callable, Iterable, Sequence, TypeVar
 
 import jmespath
+
+from .types import DROP, KEEP
 
 DL = TypeVar("DL", dict[str, Any], list[Any], Any)
 
@@ -79,6 +80,105 @@ def default_dsl(source: dict[str, Any] | list[Any], key: str):
     return jmespath.search(key, source)
 
 
-def encode_stack_trace(stack_trace: list[str]) -> str:
-    # Encode the stack trace (into bytes), then save the byte representation as a str (second `decode`)
-    return base64.b64encode(bytes(("".join(stack_trace)), "utf-8")).decode("utf-8")
+def drop_keys(source: dict[str, Any], keys_to_drop: Iterable[str]) -> dict[str, Any]:
+    """
+    Returns the dictionary with the requested keys set to `None`.
+
+    If a key is a duplicate, then lookup fails so that key is skipped.
+
+    DROP values are checked and handled here.
+    """
+    res = source
+    seen_keys = set()
+    for key in keys_to_drop:
+        curr_keypath = get_tokenized_keypath(key)
+        if curr_keypath not in seen_keys:
+            if v := _nested_get(res, key):
+                # Check if value has a DROP object
+                if isinstance(v, DROP):
+                    # If "out of bounds", raise an error
+                    if v.value > 0 or -1 * v.value > len(curr_keypath):
+                        raise RuntimeError(f"Error: DROP level {v} at {key} is invalid")
+                    curr_keypath = curr_keypath[: v.value]
+                    # Handle case for dropping entire object
+                    if len(curr_keypath) == 0:
+                        return dict()
+                if updated := _nested_set(res, curr_keypath, None):
+                    res = updated
+                seen_keys.add(curr_keypath)
+        else:
+            seen_keys.add(curr_keypath)
+    return res
+
+
+def impute_enum_values(source: dict[str, Any], keys_to_impute: set[str]) -> dict[str, Any]:
+    """
+    Returns the dictionary with the Enum values set to their corresponding `.value`
+    """
+    res = source
+    for key in keys_to_impute:
+        curr_val = _nested_get(res, key)
+        if isinstance(curr_val, KEEP):
+            literal_val = curr_val.value
+            res = _nested_set(res, get_tokenized_keypath(key), literal_val)  # type: ignore
+    return res
+
+
+def get_tokenized_keypath(key: str) -> tuple[str | int, ...]:
+    """
+    Returns a keypath with str and ints separated. Prefer tuples so it is hashable.
+
+    E.g.: "a[0].b[-1].c" -> ("a", 0, "b", -1, "c")
+    """
+    tokenized_key = key.replace("[", ".").replace("]", "")
+    keypath = tokenized_key.split(".")
+    return tuple(int(k) if k.removeprefix("-").isnumeric() else k for k in keypath)
+
+
+def _nested_get(
+    source: dict[str, Any] | list[Any],
+    key: str | Any,
+    default: Any = None,
+    dsl_fn: Callable[[dict[str, Any] | list[Any], Any], Any] = default_dsl,
+) -> Any:
+    """
+    Expects `.`-delimited string and tries to get the item in the dict.
+
+    If using pydian defaults, the following benefits apply:
+    - Tuple support
+
+    If you use a custom `dsl_fn`, then logic is entrusted to that function (wgpcgr).
+    """
+    # Assume `key: str`. If not, then trust the custom `dsl_fn` to handle it
+    # Handle tuple syntax (if they ask for a tuple, return a tuple)
+    if isinstance(key, str) and ("(" in key and ")" in key):
+        key = key.replace("(", "[").replace(")", "]")
+        res = dsl_fn(source, key)
+        if isinstance(res, list):
+            res = tuple(res)
+    else:
+        res = dsl_fn(source, key)
+
+    # DSL-independent cleanup
+    if isinstance(res, list):
+        res = [r if r is not None else default for r in res]
+    if res is None:
+        res = default
+
+    return res
+
+
+def _nested_set(
+    source: dict[str, Any], tokenized_key_list: Sequence[str | int], target: Any
+) -> dict[str, Any] | None:
+    """
+    Returns a copy of source with the replace if successful, else None.
+    """
+    res: Any = source
+    try:
+        for k in tokenized_key_list[:-1]:
+            res = res[k]
+        res[tokenized_key_list[-1]] = target
+    except IndexError:
+        return None
+    return source
