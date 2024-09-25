@@ -1,4 +1,4 @@
-# pydian - p̲y̲thonic d̲ata i̲ntercha̲n̲ge
+# pydian - <ins alt="p̲y̲">py</ins>thonic <ins alt="d̲">d</ins>ata <ins alt="i̲">i</ins>nterch<ins alt="a̲n̲">an</ins>ge
 
 pydian is a pure Python library for readable and repeatable data mappings. pydian reduces boilerplate for data manipulation and provides a framework for expressive data wrangling.
 
