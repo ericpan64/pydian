@@ -6,7 +6,7 @@ from polars.testing import (
 )
 from result import Err
 
-from pydian.dataframes import group_by, join, select, union
+from pydian.dataframes.core import group_by, join, select, union
 
 
 def test_select(simple_dataframe: pl.DataFrame) -> None:

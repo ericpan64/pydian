@@ -2,7 +2,7 @@ from typing import Any, Callable, Mapping
 
 from result import Err, Ok
 
-from ..dicts import get
+from ..dicts.core import get
 from .rules import Rule, RuleGroup
 
 
