@@ -12,7 +12,7 @@ from result import Err, Ok
 
 import pydian.partials as p
 
-from ..dicts import get
+from ..dicts.core import get
 
 
 class RC(Enum):

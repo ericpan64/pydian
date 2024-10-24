@@ -3,8 +3,8 @@ from typing import Any
 import pytest
 
 from pydian import Mapper, get
+from pydian.dicts.mapper import mapping_context
 from pydian.lib.types import DROP, KEEP
-from pydian.mapper import mapping_context
 
 
 def test_drop(simple_data: dict[str, Any]) -> None:
