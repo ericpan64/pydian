@@ -9,7 +9,7 @@ COMMAS_IGNORING_BRACKETS = r",(?![^{}\[\]]*[}\]])"
 COLONS_IGNORING_BRACES = r":(?![^{]*})"
 PERIOD_UP_TO_NEXT_CLOSE_PARENS = r"\.(.*?\))"
 
-JOIN_KEYWORD = re.compile(r"\bFROM\b", re.IGNORECASE)
+FROM_KEYWORD = re.compile(r"\bFROM\b", re.IGNORECASE)
 ON_KEYWORD = re.compile(r"\bON\b", re.IGNORECASE)
 ON_COLS_PATTERN = r"\bon\s*\[(.*?)\]"  # TODO: refactor this at some point, it's a hack
 
@@ -39,7 +39,7 @@ def select(
     - join synytax:
         - "a, b from A <- B on [col_name]" -- outer left join onto `col_name`
         - "* from A <> B on [col_name]" -- inner join on `col_name`
-    # TODO: add union syntax (++)
+        - "* from A ++ B" -- append B into A (whatever columns match)
     # TODO: add group_by syntax (brainstorm? Maybe like: `(A | group[col_name] -> [sum(), max()])`.. etc.)
     # TODO: decide on how to do subqueries and whatnot. Probably after figuring out better parsing strategy
     #       (will need to do that with `get` too -- CFG time? Probably!)
@@ -48,11 +48,14 @@ def select(
     `rename` is the standard Polars API call and is called at the very end
     """
 
-    # `join` logic (apply if applicable)
-    # Identify if `join` logic applies
-    if re.search(JOIN_KEYWORD, key):
-        key, join_clause = re.split(JOIN_KEYWORD, key, maxsplit=1)
-        source = _try_join(join_clause, source, others)  # type: ignore
+    # `from` logic (apply if applicable)
+    # Identify if `join` or `union` logic applies
+    if re.search(FROM_KEYWORD, key):
+        key, clause = re.split(FROM_KEYWORD, key, maxsplit=1)
+        if "++" in clause:
+            source = _try_union(clause, source, others)  # type: ignore
+        else:
+            source = _try_join(clause, source, others)  # type: ignore
         if isinstance(source, Err):
             return source
 
@@ -134,37 +137,38 @@ def _try_join(
     return res if not res.is_empty() else Err("Empty dataframe after join")
 
 
-# def union(
-#     source: pl.DataFrame,
-#     rows=pl.DataFrame | list[dict[str, Any]],
-#     na_default: Any = None,
-# ) -> pl.DataFrame | Err:
-#     """
-#     Inserts rows into the end of the DataFrame
+def _try_union(
+    merge_clause: str,
+    source: pl.DataFrame,
+    other=pl.DataFrame,
+    na_default: Any = None,
+) -> pl.DataFrame | Err:
+    """
+    Inserts rows into the end of the DataFrame
 
-#     For a row, if a value is not specified it will be filled with the specified default
+    For a row, if a value is not specified it will be filled with the specified default
 
-#     If the union operation cannot be done (e.g. incompatible columns), returns `Err`
-#     """
-#     if isinstance(rows, list):
-#         rows = pl.DataFrame(rows)
+    If the union operation cannot be done (e.g. incompatible columns), returns `Err`
+    """
+    # HACK: Going to revisit this with CFG parsing. For now, just assume it's just "A ++ B"
+    rows = other
 
-#     # Ensure all columns in `into` are present in `rows`
-#     for col in source.columns:
-#         if col not in rows.columns:
-#             rows = rows.with_columns(pl.lit(na_default).alias(col))
+    # Ensure all columns in `into` are present in `rows`
+    for col in source.columns:
+        if col not in rows.columns:
+            rows = rows.with_columns(pl.lit(na_default).alias(col))
 
-#     # Ensure all columns in `rows` are present in `into`
-#     for col in rows.columns:
-#         if col not in source.columns:
-#             source = source.with_columns(pl.lit(na_default).alias(col))
+    # Ensure all columns in `rows` are present in `into`
+    for col in rows.columns:
+        if col not in source.columns:
+            source = source.with_columns(pl.lit(na_default).alias(col))
 
-#     try:
-#         res = pl.concat([source, rows])
-#     except Exception as e:
-#         return Err(f"Error when unioning: {str(e)}")
+    try:
+        res = pl.concat([source, rows])
+    except Exception as e:
+        return Err(f"Error when unioning: {str(e)}")
 
-#     return res
+    return res
 
 
 # def group_by(source: pl.DataFrame, agg_str: str, keep_order: bool = True) -> pl.DataFrame | Err:

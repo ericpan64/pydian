@@ -158,34 +158,40 @@ def test_inner_join(simple_dataframe: pl.DataFrame) -> None:
     assert isinstance(result, Err), f"Expected Err, but got {result}"
 
 
-# def test_union(simple_dataframe: pl.DataFrame) -> None:
-#     rows_to_union = [{"a": 6, "b": "u", "c": False, "d": None}]
-#     expected_data = {
-#         "a": [0, 1, 2, 3, 4, 5, 6],
-#         "b": ["q", "w", "e", "r", "t", "y", "u"],
-#         "c": [True, False, True, False, False, True, False],
-#         "d": [None, None, None, None, None, None, None],
-#     }
+def test_union(simple_dataframe: pl.DataFrame) -> None:
+    rows_to_union = pl.DataFrame({"a": [6], "b": ["u"], "c": [False], "d": [None]})
+    expected_data = {
+        "a": [0, 1, 2, 3, 4, 5, 6],
+        "b": ["q", "w", "e", "r", "t", "y", "u"],
+        "c": [True, False, True, False, False, True, False],
+        "d": [None, None, None, None, None, None, None],
+    }
 
-#     # Test basic union functionality
-#     result = union(simple_dataframe, rows_to_union)
-#     pl.DataFrame(expected_data).equals(result)  # type: ignore
+    # Test basic union functionality
+    result = select(simple_dataframe, "* from A ++ B", others=rows_to_union)
+    pl.DataFrame(expected_data).equals(result)  # type: ignore
 
-#     # Test default value functionality
-#     rows_to_union_default = [{"a": 7, "b": "i"}]
-#     expected_data_default = {
-#         "a": [0, 1, 2, 3, 4, 5, 7],
-#         "b": ["q", "w", "e", "r", "t", "y", "i"],
-#         "c": [True, False, True, False, False, True, None],
-#         "d": [None, None, None, None, None, None, None],
-#     }
-#     result = union(simple_dataframe, rows_to_union_default)
-#     pl.DataFrame(expected_data_default).equals(result)  # type: ignore
+    # Test default value functionality (i.e. if column isn't there, populate a `None`)
+    rows_to_union_default = pl.DataFrame({"a": [7], "b": "i"})
+    expected_data_default = {
+        "a": [0, 1, 2, 3, 4, 5, 7],
+        "b": ["q", "w", "e", "r", "t", "y", "i"],
+        "c": [True, False, True, False, False, True, None],
+        "d": [None, None, None, None, None, None, None],
+    }
+    result = select(simple_dataframe, "* from A ++ B", others=rows_to_union_default)
+    pl.DataFrame(expected_data_default).equals(result)  # type: ignore
 
-#     # Test incompatible columns
-#     incompatible_rows = [{"e": 8}]
-#     result = union(simple_dataframe, incompatible_rows)
-#     assert isinstance(result, Err), f"Expected None, but got {result}"
+    # Test incompatible columns
+    incompatible_rows = pl.DataFrame(
+        {"e": [8]}
+    )  # This column isn't in the original, so `Err` on the union
+    result = select(simple_dataframe, "* from A ++ B", others=incompatible_rows)
+    assert isinstance(result, Err), f"Expected None, but got {result}"
+
+    # Test selecting some columns
+    result = select(simple_dataframe, "a, b from A ++ B", others=rows_to_union)
+    pl.DataFrame(expected_data).select([pl.col("a"), pl.col("b")]).equals(result)  # type: ignore
 
 
 # def test_group_by(simple_dataframe: pl.DataFrame) -> None:
