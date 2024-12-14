@@ -116,30 +116,6 @@ def test_nested_select(nested_dataframe: pl.DataFrame) -> None:
         extend_rename_expected,
     )
 
-    # Extend, and keep source col (+>)
-    extend_keep_expected = source.select(
-        pl.col("simple_nesting"),
-        pl.col("simple_nesting")
-        .struct.field("patient")
-        .struct.field("id")
-        .alias("simple_nesting.patient.id"),
-        pl.col("simple_nesting")
-        .struct.field("patient")
-        .struct.field("active")
-        .alias("simple_nesting.patient.active"),
-    )
-    select_extend_keep = select(source, "simple_nesting +> ['patient.id', 'patient.active']")
-    assert_frame_equal(select_extend_keep, extend_keep_expected)  # type: ignore
-
-    # # Rename cols
-    extend_keep_rename_expected = extend_keep_expected.rename(
-        {"simple_nesting.patient.id": "pid", "simple_nesting.patient.active": "pactive"}
-    )
-    select_extend_keep_and_rename = select(
-        source, "simple_nesting +> {'pid': 'patient.id', 'pactive': 'patient.active'}"
-    )
-    assert_frame_equal(select_extend_keep_and_rename, extend_keep_rename_expected)  # type: ignore
-
 
 def test_left_join(simple_dataframe: pl.DataFrame) -> None:
     source = simple_dataframe
