@@ -1,6 +1,5 @@
 import ast
 import re
-from collections.abc import Iterable
 from typing import Any, Callable, Literal
 
 import polars as pl
@@ -32,8 +31,6 @@ def select(
 
     `rename` is the standard Polars API call and is called at the very end
     """
-    _check_assumptions(source)
-
     # Extract query from key (if present)
     key = key.replace(" ", "")
     query: pl.Expr | None = None
@@ -76,7 +73,12 @@ def join(
     on: str | list[str],
 ) -> pl.DataFrame | Err:
     try:
-        _pre_merge_checks(source, second, on)
+        # If _any_ of the provided indices aren't there, return `None`
+        if isinstance(on, str):
+            on = [on]
+        for c in on:
+            if not (c in source.columns and c in second.columns):
+                raise KeyError(f"Proposed key {c} is not in either column!")
     except KeyError as e:
         return Err(f"Failed pre-merge checks for {how} join: {str(e)}")
 
@@ -171,26 +173,6 @@ def group_by(source: pl.DataFrame, agg_str: str, keep_order: bool = True) -> pl.
         return Err("Dataframe after `group_by` is empty")
 
     return res
-
-
-def _check_assumptions(source: pl.DataFrame | Iterable[pl.DataFrame]) -> None:
-    if isinstance(source, pl.DataFrame):
-        source = (source,)
-    for df in source:
-        ## Check for column names that are `str`
-        col_types = {type(c) for c in df.columns}
-        if col_types != {str}:
-            raise ValueError(f"Column headers need to be `str`, got: {col_types}")
-
-
-def _pre_merge_checks(source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]) -> None:
-    # If _any_ of the provided indices aren't there, return `None`
-    _check_assumptions([source, second])
-    if isinstance(on, str):
-        on = [on]
-    for c in on:
-        if not (c in source.columns and c in second.columns):
-            raise KeyError(f"Proposed key {c} is not in either column!")
 
 
 class PythonExprToPolarsExprVisitor(ast.NodeVisitor):
