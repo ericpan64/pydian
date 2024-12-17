@@ -5,9 +5,11 @@ from typing import Any, Callable, Iterable, Literal
 import polars as pl
 from result import Err
 
-COMMAS_IGNORING_BRACKETS = r",(?![^{}\[\]]*[}\]])"
+# `Bracket` is `[]`, `Braces` is `{}`
+COMMAS_IGNORING_BRACKETS_BRACES = r",(?![^{}\[\]]*[}\]])"
 COLONS_IGNORING_BRACES = r":(?![^{]*})"
 PERIOD_UP_TO_NEXT_CLOSE_PARENS = r"\.(.*?\))"
+STR_WITHIN_BRACKETS = r"\[([^\]]+)\]"
 
 FROM_KEYWORD = re.compile(r"\bFROM\b", re.IGNORECASE)
 ON_KEYWORD = re.compile(r"\bON\b", re.IGNORECASE)
@@ -30,8 +32,8 @@ def select(
     - query syntax:
         - "*" -- all columns
         - "a, b, c" -- columns a, b, c (in-order)
-        - "a, b : c > 3" -- columns a, b where column c > 3
-        - "* : c != 3" -- all columns where column c != 3
+        - "a, b : [c > 3]" -- columns a, b where column c > 3
+        - "* : [c != 3]" -- all columns where column c != 3
         - "dict_col -> [a, b, c]" -- "dict_col.a, dict_col.b, dict_col.c"
     NOTE: For the rest of these operations, only _one_ of each kind is currently supported
     NOTE: By default, the pydian DSL uses `A` as an alias for `source`,
@@ -40,7 +42,11 @@ def select(
         - "a, b from A <- B on [col_name]" -- outer left join onto `col_name`
         - "* from A <> B on [col_name]" -- inner join on `col_name`
         - "* from A ++ B" -- append B into A (whatever columns match)
-    # TODO: add group_by syntax (brainstorm? Maybe like: `(A | group[col_name] -> [sum(), max()])`.. etc.)
+        - "* from A => groupby[col_name | sum(), max()]"
+    - groupby synax:
+        - "col_name, other_col from A => groupby[col_name]"
+        - "col_name, other_col_sum from A => groupby[col_name | sum()]"
+        - "* from A => groupby[col_name, other_col | n_unique(), sum()]
     # TODO: decide on how to do subqueries and whatnot. Probably after figuring out better parsing strategy
     #       (will need to do that with `get` too -- CFG time? Probably!)
     # So: currently only supports one join (do a CFG to properly support multiple)
@@ -49,13 +55,19 @@ def select(
     """
 
     # `from` logic (apply if applicable)
-    # Identify if `join` or `union` logic applies
+    # Identify if `join`, `union`, or `groupby` logic applies
     if re.search(FROM_KEYWORD, key):
         key, clause = re.split(FROM_KEYWORD, key, maxsplit=1)
+        # TODO: This only allows 1 operation per query, figure out how to do multiple
         if "++" in clause:
             source = _try_union(clause, source, others)  # type: ignore
-        else:
+        elif " on " in clause.lower():
             source = _try_join(clause, source, others)  # type: ignore
+        elif "=>" in clause:
+            # TODO: would be cool to also support `orderby` here too
+            source = _try_groupby(clause, source, others)  # type: ignore
+        else:
+            raise RuntimeError("Error: missing/unsupported operation in `from` clause")
         if isinstance(source, Err):
             return source
 
@@ -74,7 +86,7 @@ def select(
     try:
         # Grab correct subset/slice of the dataframe
         parsed_col_list = re.split(
-            COMMAS_IGNORING_BRACKETS, key
+            COMMAS_IGNORING_BRACKETS_BRACES, key
         )  # Get distinct space for each column name
         res = _apply_nested_col_list(source, parsed_col_list)
         # Post-processing checks
@@ -171,50 +183,80 @@ def _try_union(
     return res
 
 
-# def group_by(source: pl.DataFrame, agg_str: str, keep_order: bool = True) -> pl.DataFrame | Err:
-#     """
-#     Allows the following shorthands for `group_by`:
-#     - Use comma-delimited col names
-#     - Specify aggregators after `->` using list or dict syntax
-#         - For no aggregator specified, default to `.all()`
+def _try_groupby(
+    groupby_clause: str,
+    source: pl.DataFrame,
+    others: pl.DataFrame | list[pl.DataFrame] | None,  # unused
+    keep_order: bool = True,
+) -> pl.DataFrame | Err:
+    """
+    Allows the following shorthands for `group_by`:
+    - Use comma-delimited col names
+    - Specify aggregators after `|` using list or dict syntax
+        - For no aggregator specified, default to `.all()`
+        - Explicitly named aggregations will also rename resulting columns
+          (adds a suffix of the aggregation name, e.g. `colname_all`)
 
-#     Examples:
-#     - `"a"` -- `group_by('a').all()`
-#     - `"a, b"` -- `group_by(['a', 'b']).all()`
-#     - `"a -> ['*'.len()]"` -- `group_by('a').len()`
-#     - `"a -> ['b'.mean()]"` -- `group_by('a').agg([pl.col('b').mean()]))
-#     - `"a -> ['*'.mean()]"` -- `group_by('a').mean()`
+    Examples:
+    - `"groupby[a]"` -- `group_by('a').all()`
+    - `"groupby[a, b]"` -- `group_by(['a', 'b']).all()`
+    - `"groupby[a | len()]"` -- `group_by('a').agg(pl.len().name.suffix('_len'))`
+    - `"groupby[a | mean()]"` -- `group_by('a').agg(pl.mean().name.suffix('_mean'))
+    - `"groupby[a | len(), mean()]"` -- `group_by('a').agg([pl.len().name.suffix('_len'), pl.mean().name.suffix('_mean')])
 
-#     Supported aggregation functions:
-#     - `len()`
-#     - `sum()`, `mean()`
-#     - `max()`, `min()`, `median()`
-#     - `std()`, `var()`
-#     """
-#     # Parse `agg` str into halfs
-#     agg_str = agg_str.replace(" ", "")
-#     query_parts = agg_str.split("->")
-#     res = source
-#     if len(query_parts) == 1:
-#         # Default to using `.all()` aggregator
-#         col_names = agg_str.split(",")
-#         res = source.group_by(col_names, maintain_order=keep_order).all()
-#     elif len(query_parts) == 2:
-#         col_names = query_parts[0].split(",")
-#         res = source.group_by(col_names, maintain_order=keep_order)  # type: ignore
-#         agg_list_str = query_parts[1].removeprefix("[").removesuffix("]")
-#         agg_expr_list = _agg_list_to_polars_expr(agg_list_str)
-#         if isinstance(agg_expr_list, Err):
-#             return agg_expr_list
-#         else:
-#             res = res.agg(agg_expr_list)  # type: ignore
-#     else:
-#         raise ValueError("Groupby aggregation string contained too many `->` characters")
+    Supported aggregation functions:
+      NOTE: if an agg function is used, then the new column will have the agg name added as a suffix
+        AND if an agg function cannot be applied, the column remains unchanged (e.g. std() on a str)
+    - `all()`, `len()`, `n_unique()`
+    - `sum()`, `mean()`
+    - `max()`, `min()`, `median()`
+    """
+    # NOTE: assumes only one input table, fix with CFG implementation...
+    # HACK: handle default the simple way
+    DEFAULT_STR = "default"
+    # Parse `groupby_clause` str into halfs
+    bracket_str_list: list[str] = re.findall(STR_WITHIN_BRACKETS, groupby_clause)
+    if not bracket_str_list:
+        raise RuntimeError(f"Invalid structure for `groupby` clause: {groupby_clause}")
+    bracket_str: str = bracket_str_list[0].replace(" ", "")
+    if "|" in bracket_str:
+        col_names, agg_names = bracket_str.split("|")
+    else:
+        # Default to `all()`
+        col_names, agg_names = bracket_str, DEFAULT_STR
 
-#     if res.is_empty():
-#         return Err("Dataframe after `group_by` is empty")
+    # Organize appropriate aggregation function
+    agg_list = agg_names.split(",")
+    # NOTE: `coalesce` keeps the first non-null value. So we try the aggregation, however
+    #       if it fails, then we take the `all` aggregation and keep original name to note unchanged
+    agg_mapping = {
+        DEFAULT_STR: pl.all(),
+        "all()": pl.all().name.suffix(
+            "_all"
+        ),  # If this is explicitly specified, then add the suffix
+        "len()": pl.len().name.suffix("_len"),
+        "n_unique()": pl.n_unique("*").name.suffix("_n_unique"),
+        "sum()": pl.all().sum().name.suffix("_sum"),
+        "mean()": pl.all().mean().name.suffix("_mean"),
+        "max()": pl.all().max().name.suffix("_max"),
+        "min()": pl.all().min().name.suffix("_min"),
+        "median()": pl.all().median().name.suffix("_median"),
+    }
+    try:
+        mapped_agg_list = [agg_mapping[a] for a in agg_list]
+    except KeyError as e:
+        raise ValueError(
+            f"Unsupported aggregation (if in polars, please open GitHub to suggest): {str(e)}"
+        )
 
-#     return res
+    # Perform the groupby
+    col_list = col_names.split(",")
+    res = source.group_by(col_list, maintain_order=keep_order).agg(mapped_agg_list)
+
+    if res.is_empty():
+        return Err("Dataframe after `group_by` is empty")
+
+    return res
 
 
 class PythonExprToPolarsExprVisitor(ast.NodeVisitor):
@@ -288,9 +330,6 @@ def _apply_nested_col_list(
     """
     Completes handling of the `.`, `->` operators which is the `parsed_nested_col_list`.
       Converts the string expressions into corresponding Polars expression to apply at the end
-
-    The incoming "parsed_nested_col_list" looks something like:
-        ["some_col", "b", "c.d", ["b", "c.d"], {"new_name": "c.d"} ...]
     """
     # Handle `->` case
     parsed_nested_col_list = _generate_nesting_list(parsed_col_list)
@@ -429,95 +468,3 @@ def _extract_list(s: str, add_prefix: str | None = None) -> list[str] | None:
 
     except ValueError:
         return None
-
-
-# def _agg_list_to_polars_expr(agg_list_str: str) -> list[pl.Expr] | Err:
-#     """
-#     Takes something like:
-#         - "a -> ['*'.len()]"
-#         - "a -> ['b'.mean()]"
-#         - "a -> ['b'.mean(), 'c'.median()]
-#       and turns it into:
-#         - [pl.col('*').len()]
-#         - [pl.col('b').mean()]
-#         - [pl.col('b').mean(), pl.col('c').median()]
-
-#     Supported aggregation functions:
-#     - `len()`
-#     - `sum()`, `mean()`
-#     - `max()`, `min()`, `median()`
-#     - `std()`, `var()`
-#     """
-
-#     # Split into cols and aggregators
-#     # First split by commas to get each individual part
-#     # For each part:
-#     #  - Assume if `()` is present, it's an aggregator for the last noted col (in quotes)
-#     #  - Assume the first item must be a col name, and the first character must be a quote
-#     agg_cols = agg_list_str.split(",")
-#     agg_parts = []
-#     for col in agg_cols:
-#         col_parts = re.split(PERIOD_UP_TO_NEXT_CLOSE_PARENS, col)
-#         agg_parts.extend(col_parts)
-#     quote = agg_parts[0][0]
-#     if quote not in {'"', "'"}:
-#         return Err(f"Need to have column expressions in quotes, got `{agg_parts[0]}`")
-#     lexed_agg_list_str = str([p.strip(quote) for p in agg_parts if p != ""])
-#     parsed_agg_list_str = _extract_list(
-#         lexed_agg_list_str
-#     )  # NOTE: this fn replaces `()` from the string with `<fn>`
-#     if parsed_agg_list_str is None:
-#         return Err(f"Could not parse expression `{agg_list_str}`")
-
-#     # Apply the appropriate aggregation function
-#     res = []
-#     curr_expr: pl.Expr | None = None
-#     for agg_part in parsed_agg_list_str:
-#         if not agg_part.endswith("<fn>"):
-#             # Assume default `all()` if nothing specified
-#             if curr_expr is not None:
-#                 res.append(curr_expr.all())
-#             # Set-up next aggregator
-#             curr_expr = pl.col(agg_part)
-#         else:
-#             # NOTE: each of these aggregators will be considered "terminal". No chaining currently
-#             #   ... also no logic-checking / correcting. Just handling as-is!
-#             if not isinstance(curr_expr, pl.Expr):
-#                 return Err(
-#                     f"Error when handling aggregation expression, tried to aggregate incorrect type: {curr_expr}"
-#                 )
-#             match agg_part:
-#                 case "len<fn>":
-#                     curr_expr = curr_expr.len()
-#                 case "sum<fn>":
-#                     curr_expr = curr_expr.sum()
-#                 case "mean<fn>":
-#                     curr_expr = curr_expr.mean()
-#                 case "max<fn>":
-#                     curr_expr = curr_expr.max()
-#                 case "min<fn>":
-#                     curr_expr = curr_expr.min()
-#                 case "median<fn>":
-#                     curr_expr = curr_expr.median()
-#                 case "std<fn>":
-#                     curr_expr = curr_expr.std()
-#                 case "var<fn>":
-#                     curr_expr = curr_expr.var()  # .alias(f"{curr_expr.meta.output_name()}_sum")
-#                 case _:
-#                     return Err(f"Got unsupported aggregator: {agg_part}")
-#             # Rename column based on the aggregator
-#             #   Handle the `*` case by checking for root name
-#             agg_suffix = agg_part.removesuffix("<fn>")
-#             if root_names := curr_expr.meta.root_names():
-#                 curr_expr = curr_expr.alias(f"{root_names[0]}_{agg_suffix}")
-#             else:
-#                 # The `*` case -- add a suffix
-#                 curr_expr = curr_expr.name.suffix(f"_{agg_suffix}")
-#             res.append(curr_expr)
-#             curr_expr = None
-
-#     # Handle last item case (e.g. `b` for "a, b")
-#     if curr_expr is not None:
-#         res.append(curr_expr.all())
-
-#     return res

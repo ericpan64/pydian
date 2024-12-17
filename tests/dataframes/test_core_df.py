@@ -194,70 +194,76 @@ def test_union(simple_dataframe: pl.DataFrame) -> None:
     pl.DataFrame(expected_data).select([pl.col("a"), pl.col("b")]).equals(result)  # type: ignore
 
 
-# def test_group_by(simple_dataframe: pl.DataFrame) -> None:
-#     # Group column -- default aggregation (`.all()`)
-#     group_by_a = group_by(simple_dataframe, "a")  # (`a` has all unique int values)
-#     group_by_b = group_by(simple_dataframe, "b")  # (`b` has all unique str values)
-#     group_by_c = group_by(simple_dataframe, "c")  # (`c` has half `True`, half `False`)
-#     group_by_d = group_by(simple_dataframe, "d")  # (`d` has all `None`)
+def test_group_by(simple_dataframe: pl.DataFrame) -> None:
+    # Group column -- default aggregation (`.all()`)
+    #   i.e. `a` becomes unique, and other cols get aggregated by corresponding function
+    #   Each aggregation applied to a column will have a new name: `origcolname_aggname`
+    group_by_a = select(
+        simple_dataframe, "a, b, c from A => groupby[a]"
+    )  # this will default `.all()` and not rename
+    group_by_b = select(simple_dataframe, "b, a_n_unique from A => groupby[b | n_unique()]")
+    group_by_c = select(
+        simple_dataframe, "* from A => groupby[c | all()]"
+    )  # this will explicitly rename
+    group_by_d = select(simple_dataframe, "* from A => groupby[d | all(), n_unique()]")
 
-#     assert_frame_equal(group_by_a, simple_dataframe.group_by("a", maintain_order=True).all())  # type: ignore
-#     assert_frame_equal(group_by_b, simple_dataframe.group_by("b", maintain_order=True).all())  # type: ignore
-#     assert_frame_equal(group_by_c, simple_dataframe.group_by("c", maintain_order=True).all())  # type: ignore
-#     assert_frame_equal(group_by_d, simple_dataframe.group_by("d", maintain_order=True).all())  # type: ignore
+    assert_frame_equal(group_by_a, simple_dataframe.group_by("a", maintain_order=True).all()["a", "b", "c"])  # type: ignore
+    assert_frame_equal(group_by_b, simple_dataframe.group_by("b", maintain_order=True).agg(pl.all().n_unique().name.suffix("_n_unique"))["b", "a_n_unique"])  # type: ignore
+    assert_frame_equal(group_by_c, simple_dataframe.group_by("c", maintain_order=True).agg(pl.all().name.suffix("_all")))  # type: ignore
+    assert_frame_equal(group_by_d, simple_dataframe.group_by("d", maintain_order=True).agg([pl.all().name.suffix("_all"), pl.n_unique("*").name.suffix("_n_unique")]))  # type: ignore
 
-#     # Group by multiple columns -- default aggregation (`.all()`)
-#     group_by_ab = group_by(simple_dataframe, "a, b")
-#     assert_frame_equal(
-#         group_by_ab, simple_dataframe.group_by(["a", "b"], maintain_order=True).all()  # type: ignore
-#     )
+    # # Group by multiple columns -- default aggregation (`.all()`)
+    # group_by_ab = group_by(simple_dataframe, "a, b")
+    # assert_frame_equal(
+    #     group_by_ab, simple_dataframe.group_by(["a", "b"], maintain_order=True).all()  # type: ignore
+    # )
 
-#     group_by_ac = group_by(simple_dataframe, "a, c")
-#     assert_frame_equal(
-#         group_by_ac, simple_dataframe.group_by(["a", "c"], maintain_order=True).all()  # type: ignore
-#     )
+    # group_by_ac = group_by(simple_dataframe, "a, c")
+    # assert_frame_equal(
+    #     group_by_ac, simple_dataframe.group_by(["a", "c"], maintain_order=True).all()  # type: ignore
+    # )
 
-#     # Group by with `len()` aggregation
-#     group_by_a_len = group_by(simple_dataframe, "a -> ['*'.len()]")
-#     assert_frame_equal(
-#         group_by_a_len,  # type: ignore
-#         simple_dataframe.group_by("a", maintain_order=True).agg(
-#             [pl.col("*").len().name.suffix("_len")]
-#         ),
-#     )
+    # # Group by with `len()` aggregation
+    # group_by_a_len = group_by(simple_dataframe, "a -> ['*'.len()]")
+    # assert_frame_equal(
+    #     group_by_a_len,  # type: ignore
+    #     simple_dataframe.group_by("a", maintain_order=True).agg(
+    #         [pl.col("*").len().name.suffix("_len")]
+    #     ),
+    # )
 
-#     # Group by with `sum()` aggregation
-#     group_by_a_sum = group_by(simple_dataframe, "b -> ['a'.sum()]")
-#     assert_frame_equal(
-#         group_by_a_sum,  # type: ignore
-#         simple_dataframe.group_by("b", maintain_order=True).agg([pl.col("a").sum().alias("a_sum")]),
-#     )
+    # # Group by with `sum()` aggregation
+    # group_by_a_sum = group_by(simple_dataframe, "b -> ['a'.sum()]")
+    # assert_frame_equal(
+    #     group_by_a_sum,  # type: ignore
+    #     simple_dataframe.group_by("b", maintain_order=True).agg([pl.col("a").sum().alias("a_sum")]),
+    # )
 
-#     # Group by with `mean()` aggregation
-#     group_by_a_mean = group_by(simple_dataframe, "b -> ['a'.mean()]")
-#     assert_frame_equal(
-#         group_by_a_mean,  # type: ignore
-#         simple_dataframe.group_by("b", maintain_order=True).agg(
-#             [pl.col("a").mean().alias("a_mean")]
-#         ),
-#     )
+    # # Group by with `mean()` aggregation
+    # group_by_a_mean = group_by(simple_dataframe, "b -> ['a'.mean()]")
+    # assert_frame_equal(
+    #     group_by_a_mean,  # type: ignore
+    #     simple_dataframe.group_by("b", maintain_order=True).agg(
+    #         [pl.col("a").mean().alias("a_mean")]
+    #     ),
+    # )
 
-#     # Group by with multiple aggregations
-#     group_by_a_aggs = group_by(
-#         simple_dataframe, "c -> ['a'.sum(), 'a'.mean(), 'a'.min(), 'a'.max()]"
-#     )
-#     assert_frame_equal(
-#         group_by_a_aggs,  # type: ignore
-#         simple_dataframe.group_by("c", maintain_order=True).agg(
-#             [
-#                 pl.col("a").sum().alias("a_sum"),
-#                 pl.col("a").mean().alias("a_mean"),
-#                 pl.col("a").min().alias("a_min"),
-#                 pl.col("a").max().alias("a_max"),
-#             ]
-#         ),
-#     )
+    # # Group by with multiple aggregations
+    # group_by_a_aggs = group_by(
+    #     simple_dataframe, "c -> ['a'.sum(), 'a'.mean(), 'a'.min(), 'a'.max()]"
+    # )
+    # assert_frame_equal(
+    #     group_by_a_aggs,  # type: ignore
+    #     simple_dataframe.group_by("c", maintain_order=True).agg(
+    #         [
+    #             pl.col("a").sum().alias("a_sum"),
+    #             pl.col("a").mean().alias("a_mean"),
+    #             pl.col("a").min().alias("a_min"),
+    #             pl.col("a").max().alias("a_max"),
+    #         ]
+    #     ),
+    # )
 
-#     # Test error handling
-#     assert isinstance(group_by(simple_dataframe, "a -> b"), Err)
-#     assert isinstance(group_by(simple_dataframe, "a -> ['b'.invalid_agg()]"), Err)
+    # # Test error handling
+    # assert isinstance(group_by(simple_dataframe, "a -> b"), Err)
+    # assert isinstance(group_by(simple_dataframe, "a -> ['b'.invalid_agg()]"), Err)
