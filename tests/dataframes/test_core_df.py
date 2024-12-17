@@ -1,6 +1,9 @@
 from copy import deepcopy
 
 import polars as pl
+
+# TODO: Think through when to `Err` and when to throw exception (which one is data, which one is process)
+import pytest
 from polars.testing import (
     assert_frame_equal,  # Do `type: ignore` to gnore the `Err` case
 )
@@ -212,58 +215,61 @@ def test_group_by(simple_dataframe: pl.DataFrame) -> None:
     assert_frame_equal(group_by_c, simple_dataframe.group_by("c", maintain_order=True).agg(pl.all().name.suffix("_all")))  # type: ignore
     assert_frame_equal(group_by_d, simple_dataframe.group_by("d", maintain_order=True).agg([pl.all().name.suffix("_all"), pl.n_unique("*").name.suffix("_n_unique")]))  # type: ignore
 
-    # # Group by multiple columns -- default aggregation (`.all()`)
-    # group_by_ab = group_by(simple_dataframe, "a, b")
-    # assert_frame_equal(
-    #     group_by_ab, simple_dataframe.group_by(["a", "b"], maintain_order=True).all()  # type: ignore
-    # )
+    # Group by multiple columns -- default aggregation (`.all()`)
+    group_by_ab = select(simple_dataframe, "* from A => groupby[a, b]")
+    assert_frame_equal(
+        group_by_ab, simple_dataframe.group_by(["a", "b"], maintain_order=True).all()  # type: ignore
+    )
 
-    # group_by_ac = group_by(simple_dataframe, "a, c")
-    # assert_frame_equal(
-    #     group_by_ac, simple_dataframe.group_by(["a", "c"], maintain_order=True).all()  # type: ignore
-    # )
+    group_by_ac = select(simple_dataframe, "* from A => groupby[a, c]")
+    assert_frame_equal(
+        group_by_ac, simple_dataframe.group_by(["a", "c"], maintain_order=True).all()  # type: ignore
+    )
 
-    # # Group by with `len()` aggregation
-    # group_by_a_len = group_by(simple_dataframe, "a -> ['*'.len()]")
-    # assert_frame_equal(
-    #     group_by_a_len,  # type: ignore
-    #     simple_dataframe.group_by("a", maintain_order=True).agg(
-    #         [pl.col("*").len().name.suffix("_len")]
-    #     ),
-    # )
+    # Group by with `len()` aggregation
+    group_by_a_len = select(simple_dataframe, "* from A => groupby[a | len()]")
+    assert_frame_equal(
+        group_by_a_len,  # type: ignore
+        simple_dataframe.group_by("a", maintain_order=True).agg(
+            [pl.col("*").len().name.suffix("_len")]
+        ),
+    )
 
-    # # Group by with `sum()` aggregation
-    # group_by_a_sum = group_by(simple_dataframe, "b -> ['a'.sum()]")
-    # assert_frame_equal(
-    #     group_by_a_sum,  # type: ignore
-    #     simple_dataframe.group_by("b", maintain_order=True).agg([pl.col("a").sum().alias("a_sum")]),
-    # )
+    # Group by with `sum()` aggregation
+    group_by_a_sum = select(simple_dataframe, "b, a_sum from A => groupby[b | sum()]")
+    assert_frame_equal(
+        group_by_a_sum,  # type: ignore
+        simple_dataframe.group_by("b", maintain_order=True).agg([pl.col("a").sum().alias("a_sum")]),
+    )
 
-    # # Group by with `mean()` aggregation
-    # group_by_a_mean = group_by(simple_dataframe, "b -> ['a'.mean()]")
-    # assert_frame_equal(
-    #     group_by_a_mean,  # type: ignore
-    #     simple_dataframe.group_by("b", maintain_order=True).agg(
-    #         [pl.col("a").mean().alias("a_mean")]
-    #     ),
-    # )
+    # Group by with `mean()` aggregation
+    group_by_a_mean = select(simple_dataframe, "b, a_mean from A => groupby[b | mean()]")
+    assert_frame_equal(
+        group_by_a_mean,  # type: ignore
+        simple_dataframe.group_by("b", maintain_order=True).agg(
+            [pl.col("a").mean().alias("a_mean")]
+        ),
+    )
 
-    # # Group by with multiple aggregations
-    # group_by_a_aggs = group_by(
-    #     simple_dataframe, "c -> ['a'.sum(), 'a'.mean(), 'a'.min(), 'a'.max()]"
-    # )
-    # assert_frame_equal(
-    #     group_by_a_aggs,  # type: ignore
-    #     simple_dataframe.group_by("c", maintain_order=True).agg(
-    #         [
-    #             pl.col("a").sum().alias("a_sum"),
-    #             pl.col("a").mean().alias("a_mean"),
-    #             pl.col("a").min().alias("a_min"),
-    #             pl.col("a").max().alias("a_max"),
-    #         ]
-    #     ),
-    # )
+    # Group by with multiple aggregations
+    group_by_a_aggs = select(
+        simple_dataframe,
+        "c, a_sum, a_mean, a_min, a_max from A => groupby[c | sum(), mean(), min(), max()]",
+    )
+    assert_frame_equal(
+        group_by_a_aggs,  # type: ignore
+        simple_dataframe.group_by("c", maintain_order=True).agg(
+            [
+                pl.col("a").sum().alias("a_sum"),
+                pl.col("a").mean().alias("a_mean"),
+                pl.col("a").min().alias("a_min"),
+                pl.col("a").max().alias("a_max"),
+            ]
+        ),
+    )
 
-    # # Test error handling
-    # assert isinstance(group_by(simple_dataframe, "a -> b"), Err)
-    # assert isinstance(group_by(simple_dataframe, "a -> ['b'.invalid_agg()]"), Err)
+    # Test error handling
+    with pytest.raises(Exception):
+        select(simple_dataframe, "* from A => groupby[a | invalid_agg()]")
+    with pytest.raises(Exception):
+        select(simple_dataframe, "* from A => groupby[non_existent_column]")

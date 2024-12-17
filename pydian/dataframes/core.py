@@ -234,7 +234,7 @@ def _try_groupby(
         "all()": pl.all().name.suffix(
             "_all"
         ),  # If this is explicitly specified, then add the suffix
-        "len()": pl.len().name.suffix("_len"),
+        "len()": pl.all().len().name.suffix("_len"),
         "n_unique()": pl.n_unique("*").name.suffix("_n_unique"),
         "sum()": pl.all().sum().name.suffix("_sum"),
         "mean()": pl.all().mean().name.suffix("_mean"),
