@@ -49,6 +49,7 @@ def select(
         - "* from A => groupby[col_name, other_col | n_unique(), sum()]
     # TODO: decide on how to do subqueries and whatnot. Probably after figuring out better parsing strategy
     #       (will need to do that with `get` too -- CFG time? Probably!)
+    # TODO: make the bracket syntax consistent (e.g. `where[...]`, `on[...]`, etc.)
     # So: currently only supports one join (do a CFG to properly support multiple)
 
     `rename` is the standard Polars API call and is called at the very end
