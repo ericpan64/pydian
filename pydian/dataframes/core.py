@@ -1,68 +1,100 @@
 import ast
 import re
-from collections.abc import Iterable
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Iterable, Literal
 
 import polars as pl
 from result import Err
 
-COMMAS_OUTSIDE_OF_BRACKETS = r",(?![^{}\[\]]*[}\]])"
-COLON_OUTSIDE_OF_BRACKETS = r":(?![^{]*})"
+# `Bracket` is `[]`, `Braces` is `{}`
+COMMAS_IGNORING_BRACKETS_BRACES = r",(?![^{}\[\]]*[}\]])"
+COLONS_IGNORING_BRACES = r":(?![^{]*})"
 PERIOD_UP_TO_NEXT_CLOSE_PARENS = r"\.(.*?\))"
+STR_WITHIN_BRACKETS = r"\[([^\]]+)\]"
+
+FROM_KEYWORD = re.compile(r"\bFROM\b", re.IGNORECASE)
+ON_KEYWORD = re.compile(r"\bON\b", re.IGNORECASE)
+ON_COLS_PATTERN = r"\bon\s*\[(.*?)\]"  # TODO: refactor this at some point, it's a hack
+
+# Alright. Only support up to 26 tables max at a time. That's it. No exceptions! \s
+TABLE_ALIASES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
 def select(
     source: pl.DataFrame,
     key: str,
-    consume: bool = False,
+    others: pl.DataFrame | list[pl.DataFrame] | None = None,
     rename: dict[str, str] | Callable[[str], str] | None = None,
 ) -> pl.DataFrame | Err:
     """
     Selects a subset of a DataFrame. `key` has some convenience functions
 
     `key` notes:
-    - "*" -- all columns
-    - "a, b, c" -- columns a, b, c (in-order)
-    - "a, b : c > 3" -- columns a, b where column c > 3
-    - "* : c != 3" -- all columns where column c != 3
-    - "dict_col -> [a, b, c]" -- "dict_col.a, dict_col.b, dict_col.c"
-    - "dict_col +> [a, b, c]" -- "dict_col, dict_col -> [a, b, c]"
-    - "dict_col -> {"A": a, "B": b}" --"dict_col.a, dict_col.b" and rename `a -> A, b -> B`
-    - "dict_col +> {"A": a, "B": b}" -- "dict_col, dict_col -> {"A": a, "B": b}"
-
-    `consume` attempts to drop columns that matched in the `select` from the source dataframe
+    - query syntax:
+        - "*" -- all columns
+        - "a, b, c" -- columns a, b, c (in-order)
+        - "a, b : [c > 3]" -- columns a, b where column c > 3
+        - "* : [c != 3]" -- all columns where column c != 3
+        - "dict_col -> [a, b, c]" -- "dict_col.a, dict_col.b, dict_col.c"
+    NOTE: For the rest of these operations, only _one_ of each kind is currently supported
+    NOTE: By default, the pydian DSL uses `A` as an alias for `source`,
+          and `B`, `C`, etc. (up to `Z`) for corresponding dataframes in `others`
+    - join synytax:
+        - "a, b from A <- B on [col_name]" -- outer left join onto `col_name`
+        - "* from A <> B on [col_name]" -- inner join on `col_name`
+        - "* from A ++ B" -- append B into A (whatever columns match)
+        - "* from A => groupby[col_name | sum(), max()]"
+    - groupby synax:
+        - "col_name, other_col from A => groupby[col_name]"
+        - "col_name, other_col_sum from A => groupby[col_name | sum()]"
+        - "* from A => groupby[col_name, other_col | n_unique(), sum()]
+    # TODO: decide on how to do subqueries and whatnot. Probably after figuring out better parsing strategy
+    #       (will need to do that with `get` too -- CFG time? Probably!)
+    # TODO: make the bracket syntax consistent (e.g. `where[...]`, `on[...]`, etc.)
+    # So: currently only supports one join (do a CFG to properly support multiple)
 
     `rename` is the standard Polars API call and is called at the very end
     """
-    _check_assumptions(source)
 
-    # Extract query from key (if present)
-    key = key.replace(" ", "")
+    # `from` logic (apply if applicable)
+    # Identify if `join`, `union`, or `groupby` logic applies
+    if re.search(FROM_KEYWORD, key):
+        key, clause = re.split(FROM_KEYWORD, key, maxsplit=1)
+        # TODO: This only allows 1 operation per query, figure out how to do multiple
+        if "++" in clause:
+            source = _try_union(clause, source, others)  # type: ignore
+        elif " on " in clause.lower():
+            source = _try_join(clause, source, others)  # type: ignore
+        elif "=>" in clause:
+            # TODO: would be cool to also support `orderby` here too
+            source = _try_groupby(clause, source, others)  # type: ignore
+        else:
+            raise RuntimeError("Error: missing/unsupported operation in `from` clause")
+        if isinstance(source, Err):
+            return source
+
+    # Extract `:`-based query syntax from key (if present)
+    key = key.replace(" ", "")  # Remove whitespace
     query: pl.Expr | None = None
-    if re.search(COLON_OUTSIDE_OF_BRACKETS, key):
-        key, query_str = re.split(COLON_OUTSIDE_OF_BRACKETS, key, maxsplit=1)
+    if re.search(COLONS_IGNORING_BRACES, key):
+        key, query_str = re.split(COLONS_IGNORING_BRACES, key, maxsplit=1)
         query_str = query_str.strip("[]")
         query = _convert_to_polars_filter(query_str)
+    ## Filter if the query is used
+    if isinstance(query, pl.Expr):
+        source = source.filter(query)
 
-    # Extract columns from syntax
-    parsed_col_list = re.split(COMMAS_OUTSIDE_OF_BRACKETS, key)
-    parsed_nested_col_list = _generate_nesting_list(parsed_col_list)
-
-    # Grab correct subset/slice of the dataframe
+    # Main `query` logic (columns and ., ->)
     try:
-        if isinstance(query, pl.Expr):
-            source = source.filter(query)
-        res = _apply_nested_col_list(source, parsed_nested_col_list)
+        # Grab correct subset/slice of the dataframe
+        parsed_col_list = re.split(
+            COMMAS_IGNORING_BRACKETS_BRACES, key
+        )  # Get distinct space for each column name
+        res = _apply_nested_col_list(source, parsed_col_list)
         # Post-processing checks
         if res.is_empty():
             raise pl.exceptions.ColumnNotFoundError
-        if consume:
-            # TODO: handle columns with query syntax -- make sure those aren't skipped
-            for col_name in parsed_col_list:
-                if col_name in source.columns:
-                    source.drop_in_place(col_name)
     except pl.exceptions.ColumnNotFoundError:
-        return Err("Default Err: `select` key didn't match")
+        return Err("<Default Err> `select` key didn't match anything (ColumnNotFoundError)")
 
     # TODO: Consider supporting regex search and pattern replacements (e.g. prefix_* -> new_prefix_*)
     if rename and isinstance(res, pl.DataFrame):
@@ -71,19 +103,41 @@ def select(
     return res
 
 
-def join(
+def _try_join(
+    join_clause: str,
     source: pl.DataFrame,
-    second: pl.DataFrame,
-    how: Literal["inner", "left", "cross", "anti", "semi"],
-    on: str | list[str],
+    others: pl.DataFrame | list[pl.DataFrame] | None = None,
 ) -> pl.DataFrame | Err:
+    """
+    Attempts to do `join` based on the provided key
+
+    NOTE: This just does one join for now. So no nested nonsense (yet)
+    """
+    how = "left" if "<-" in join_clause else "inner" if "<>" in join_clause else None
+    if not isinstance(others, list):
+        others = [others]  # type: ignore
+    # join_alias_names = list(TABLE_ALIASES[:len(others) + 2])
+    # HACK: Alright. Just do the join on one thing for now. Fix this with a CFG implementation.
+    if match := re.search(ON_COLS_PATTERN, join_clause, re.IGNORECASE):
+        on = [col.strip() for col in match.group(1).split(",")]
+    else:
+        return Err("No join columns specified in brackets after 'on'")
+
+    # Alright. Actually do the join
+    second = others[0]
     try:
-        _pre_merge_checks(source, second, on)
+        # If _any_ of the provided indices aren't there, return `Err`
+        if isinstance(on, str):
+            on = [on]
+        for c in on:
+            if not (c in source.columns and c in second.columns):
+                raise KeyError(f"Proposed key {c} is not in either column!")
     except KeyError as e:
         return Err(f"Failed pre-merge checks for {how} join: {str(e)}")
 
-    res = source.join(second, how=how, on=on, join_nulls=False, coalesce=True)
+    res = source.join(second, how=how, on=on, join_nulls=False, coalesce=True)  # type: ignore
 
+    # NOTE: checking if left join didn't match anything (can't just do empty check bc it's outer join)
     if how == "left":
         # If there were no matches, then return `Err`
         #  Check for non-null cols after the left-join
@@ -93,12 +147,13 @@ def join(
         if not matched:
             return Err("No matching columns on left join")
 
-    return res if not res.is_empty() else Err("Empty dataframe after left join")
+    return res if not res.is_empty() else Err("Empty dataframe after join")
 
 
-def union(
+def _try_union(
+    merge_clause: str,
     source: pl.DataFrame,
-    rows=pl.DataFrame | list[dict[str, Any]],
+    other=pl.DataFrame,
     na_default: Any = None,
 ) -> pl.DataFrame | Err:
     """
@@ -108,8 +163,8 @@ def union(
 
     If the union operation cannot be done (e.g. incompatible columns), returns `Err`
     """
-    if isinstance(rows, list):
-        rows = pl.DataFrame(rows)
+    # HACK: Going to revisit this with CFG parsing. For now, just assume it's just "A ++ B"
+    rows = other
 
     # Ensure all columns in `into` are present in `rows`
     for col in source.columns:
@@ -129,70 +184,80 @@ def union(
     return res
 
 
-def group_by(source: pl.DataFrame, agg_str: str, keep_order: bool = True) -> pl.DataFrame | Err:
+def _try_groupby(
+    groupby_clause: str,
+    source: pl.DataFrame,
+    others: pl.DataFrame | list[pl.DataFrame] | None,  # unused
+    keep_order: bool = True,
+) -> pl.DataFrame | Err:
     """
     Allows the following shorthands for `group_by`:
     - Use comma-delimited col names
-    - Specify aggregators after `->` using list or dict syntax
+    - Specify aggregators after `|` using list or dict syntax
         - For no aggregator specified, default to `.all()`
+        - Explicitly named aggregations will also rename resulting columns
+          (adds a suffix of the aggregation name, e.g. `colname_all`)
 
     Examples:
-    - `"a"` -- `group_by('a').all()`
-    - `"a, b"` -- `group_by(['a', 'b']).all()`
-    - `"a -> ['*'.len()]"` -- `group_by('a').len()`
-    - `"a -> ['b'.mean()]"` -- `group_by('a').agg([pl.col('b').mean()]))
-    - `"a -> ['*'.mean()]"` -- `group_by('a').mean()`
+    - `"groupby[a]"` -- `group_by('a').all()`
+    - `"groupby[a, b]"` -- `group_by(['a', 'b']).all()`
+    - `"groupby[a | len()]"` -- `group_by('a').agg(pl.len().name.suffix('_len'))`
+    - `"groupby[a | mean()]"` -- `group_by('a').agg(pl.mean().name.suffix('_mean'))
+    - `"groupby[a | len(), mean()]"` -- `group_by('a').agg([pl.len().name.suffix('_len'), pl.mean().name.suffix('_mean')])
 
     Supported aggregation functions:
-    - `len()`
+      NOTE: if an agg function is used, then the new column will have the agg name added as a suffix
+        AND if an agg function cannot be applied, the column remains unchanged (e.g. std() on a str)
+    - `all()`, `len()`, `n_unique()`
     - `sum()`, `mean()`
     - `max()`, `min()`, `median()`
-    - `std()`, `var()`
     """
-    # Parse `agg` str into halfs
-    agg_str = agg_str.replace(" ", "")
-    query_parts = agg_str.split("->")
-    res = source
-    if len(query_parts) == 1:
-        # Default to using `.all()` aggregator
-        col_names = agg_str.split(",")
-        res = source.group_by(col_names, maintain_order=keep_order).all()
-    elif len(query_parts) == 2:
-        col_names = query_parts[0].split(",")
-        res = source.group_by(col_names, maintain_order=keep_order)  # type: ignore
-        agg_list_str = query_parts[1].removeprefix("[").removesuffix("]")
-        agg_expr_list = _agg_list_to_polars_expr(agg_list_str)
-        if isinstance(agg_expr_list, Err):
-            return agg_expr_list
-        else:
-            res = res.agg(agg_expr_list)  # type: ignore
+    # NOTE: assumes only one input table, fix with CFG implementation...
+    # HACK: handle default the simple way
+    DEFAULT_STR = "default"
+    # Parse `groupby_clause` str into halfs
+    bracket_str_list: list[str] = re.findall(STR_WITHIN_BRACKETS, groupby_clause)
+    if not bracket_str_list:
+        raise RuntimeError(f"Invalid structure for `groupby` clause: {groupby_clause}")
+    bracket_str: str = bracket_str_list[0].replace(" ", "")
+    if "|" in bracket_str:
+        col_names, agg_names = bracket_str.split("|")
     else:
-        raise ValueError("Groupby aggregation string contained too many `->` characters")
+        # Default to `all()`
+        col_names, agg_names = bracket_str, DEFAULT_STR
+
+    # Organize appropriate aggregation function
+    agg_list = agg_names.split(",")
+    # NOTE: `coalesce` keeps the first non-null value. So we try the aggregation, however
+    #       if it fails, then we take the `all` aggregation and keep original name to note unchanged
+    agg_mapping = {
+        DEFAULT_STR: pl.all(),
+        "all()": pl.all().name.suffix(
+            "_all"
+        ),  # If this is explicitly specified, then add the suffix
+        "len()": pl.all().len().name.suffix("_len"),
+        "n_unique()": pl.n_unique("*").name.suffix("_n_unique"),
+        "sum()": pl.all().sum().name.suffix("_sum"),
+        "mean()": pl.all().mean().name.suffix("_mean"),
+        "max()": pl.all().max().name.suffix("_max"),
+        "min()": pl.all().min().name.suffix("_min"),
+        "median()": pl.all().median().name.suffix("_median"),
+    }
+    try:
+        mapped_agg_list = [agg_mapping[a] for a in agg_list]
+    except KeyError as e:
+        raise ValueError(
+            f"Unsupported aggregation (if in polars, please open GitHub to suggest): {str(e)}"
+        )
+
+    # Perform the groupby
+    col_list = col_names.split(",")
+    res = source.group_by(col_list, maintain_order=keep_order).agg(mapped_agg_list)
 
     if res.is_empty():
         return Err("Dataframe after `group_by` is empty")
 
     return res
-
-
-def _check_assumptions(source: pl.DataFrame | Iterable[pl.DataFrame]) -> None:
-    if isinstance(source, pl.DataFrame):
-        source = (source,)
-    for df in source:
-        ## Check for column names that are `str`
-        col_types = {type(c) for c in df.columns}
-        if col_types != {str}:
-            raise ValueError(f"Column headers need to be `str`, got: {col_types}")
-
-
-def _pre_merge_checks(source: pl.DataFrame, second: pl.DataFrame, on: str | list[str]) -> None:
-    # If _any_ of the provided indices aren't there, return `None`
-    _check_assumptions([source, second])
-    if isinstance(on, str):
-        on = [on]
-    for c in on:
-        if not (c in source.columns and c in second.columns):
-            raise KeyError(f"Proposed key {c} is not in either column!")
 
 
 class PythonExprToPolarsExprVisitor(ast.NodeVisitor):
@@ -261,15 +326,14 @@ def _convert_to_polars_filter(filter_string: str) -> pl.Expr:
 
 def _apply_nested_col_list(
     source: pl.DataFrame,
-    parsed_nested_col_list: list[str | tuple[bool, list[str] | dict[str, str]]],
+    parsed_col_list: list[str],
 ) -> pl.DataFrame:
     """
-    Completes handling of the `.`, `->`, `+>` operators which is the `parsed_nested_col_list`.
+    Completes handling of the `.`, `->` operators which is the `parsed_nested_col_list`.
       Converts the string expressions into corresponding Polars expression to apply at the end
-
-    The incoming "parsed_nested_col_list" looks something like:
-        ["some_col", "b", "c.d", (True, ["b", "c.d"]), (False, {"new_name": "c.d"}) ...]
     """
+    # Handle `->` case
+    parsed_nested_col_list = _generate_nesting_list(parsed_col_list)
 
     # Handle "*" case -- replace each instance with `source.columns`
     if "*" in parsed_nested_col_list:
@@ -283,41 +347,46 @@ def _apply_nested_col_list(
     #   Apply the expression at the end to get the final result
     res = source
     expr_list = []
-    for i, nested_col in enumerate(parsed_nested_col_list):
+    for col_str in parsed_nested_col_list:
         # Single-column case (e.g. "col_name")
-        if isinstance(nested_col, str):
-            nesting_expr = _nesting_to_polars_expr(nested_col)
+        if isinstance(col_str, str):
+            nesting_expr = _colname_to_polars_expr(col_str)
             expr_list.append(nesting_expr)
-        # # Expansion case (`->` or `+>`)
-        elif isinstance(nested_col, tuple):
-            keep_col, col_obj = nested_col
-            # keep column if specified
-            if keep_col:
-                expr_list.append(pl.col(res.columns[i]))
+        # # Expansion case (`->`)
+        else:
+            col_obj = col_str
+            # base case
             if isinstance(col_obj, list):
-                for new_nesting in col_obj:
-                    nesting_expr = _nesting_to_polars_expr(new_nesting)
+                for colname in col_obj:
+                    nesting_expr = _colname_to_polars_expr(colname)
                     expr_list.append(nesting_expr)
-            # renaming case
-            elif isinstance(col_obj, dict):
-                for new_name, new_nesting in col_obj.items():
-                    nesting_expr = _nesting_to_polars_expr(new_nesting, new_name)
-                    expr_list.append(nesting_expr)
+            # # renaming case
+            # elif isinstance(col_obj, dict):
+            #     for colname, new_name in col_obj.items():
+            #         nesting_expr = _colname_to_polars_expr(colname, new_name)
+            #         expr_list.append(nesting_expr)
+            else:
+                raise RuntimeError(
+                    f"Got unexpected type in `_apply_nested_col_list`: {type(col_str)}"
+                )
+    # Finally apply the `select`
     if expr_list:
         res = res.select(expr_list)
     return res
 
 
-def _nesting_to_polars_expr(nested_col: str, new_name: str | None = None) -> pl.Expr:
+def _colname_to_polars_expr(col_str: str, new_name: str | None = None) -> pl.Expr:
     """
     Converts something like:
         `a.b.c[0].d`
       into:
         `pl.col("a").struct.field("b").struct.field("c").list[0].struct.field("d")`
     """
-    nesting_list = nested_col.split(".", maxsplit=1)
+    nesting_list = col_str.split(".", maxsplit=1)
 
     res = pl.col(nesting_list[0])
+
+    # TODO: refactor this with regex
     if len(nesting_list) > 1:
         for item in nesting_list[1].split("."):
             # Handle brackets -- grab value (assume just integer for now)
@@ -334,159 +403,69 @@ def _nesting_to_polars_expr(nested_col: str, new_name: str | None = None) -> pl.
     if new_name:
         res = res.alias(new_name)
     else:
-        res = res.alias(nested_col)
+        res = res.alias(col_str)
 
     return res
 
 
 def _generate_nesting_list(
     parsed_col_list: list[str],
-) -> list[str | tuple[bool, list[str] | dict[str, str]]]:
+) -> list[str | list[str] | dict[str, str]]:
     """
     Return whether a specific column index should get nesting logic applied
 
     Given `parsed_col_list` as follows:
-        ['c.d', 'reg_col', "some_json_col -> ['b', 'c.d']", "some_json_col +> {'new_name': 'c.d'}"]
+        ['c.d', 'reg_col', "some_json_col -> ['b', 'c.d']", "some_json_col -> {'new_name': 'c.d'}"]
       The resulting "parsed_nested_col_list" looks something like -- a tuple of `(keep_col, nesting)`:
-        ['c.d', 'reg_col', (False, ['some_json_col.b', 'some_json_col.c.d']}), (True, {'new_name': 'some_json_col.c.d'})]
+        ['c.d', 'reg_col', ['some_json_col.b', 'some_json_col.c.d'], {'new_name': 'some_json_col.c.d'}]
+
       A more complex nesting will index-into different values (set: one -> one/many new cols)
         and possibly rename them as well (dict: one -> one/many new cols with new names)
 
     For each column, check if:
       1. Column should be extracted and consumed (`->`)
-      2. Column should be extracted and kept (`+>`)
-      3. Column should be nested into and consumed (any other str and supporting `.` syntax)
+      2. Column should be nested into and consumed (any other str and supporting `.` syntax)
     """
-    parsed_nested_col_list: list[str | tuple[bool, list[str] | dict[str, str]]] = []
+    parsed_nested_col_list: list[str | list[str] | dict[str, str]] = []
 
     for col_name in parsed_col_list:
-        # 1. extract, and consume original
-        # 2. extract, and keep original
-        if ("->" in col_name) or ("+>" in col_name):
-            keep_col = "+>" in col_name
-            col_name, content = col_name.split("+>" if keep_col else "->")
-            col_obj = _extract_list_or_dict(content, add_prefix=col_name)
+        # 1. extract, and keep original
+        if "->" in col_name:
+            col_name, content = col_name.split("->")
+            col_obj = _extract_list(content, add_prefix=col_name)
             if col_obj:
-                parsed_nested_col_list.append((keep_col, col_obj))
+                parsed_nested_col_list.append(col_obj)
             else:
-                raise RuntimeError("Error processing `->` or `+>` syntax")
-        # 3. regular string nesting
+                raise RuntimeError("Error processing `->` syntax")
+        # 2. regular string as-is (nested case handled implicitly)
         else:
             parsed_nested_col_list.append(col_name)
     return parsed_nested_col_list
 
 
-def _extract_list_or_dict(
-    s: str, add_prefix: str | None = None
-) -> list[str] | dict[str, str] | None:
+def _extract_list(s: str, add_prefix: str | None = None) -> list[str] | None:
     """
-    Tries to convert a string into a list[str] or dict[str, str]
+    Converts a string representation into a list[str].
+    Handles unwrapped strings in list format, e.g.:
+        [a, b, c] -> ['a', 'b', 'c']
 
-    If `add_prefix` is specified, then adds the prefix to list/dict values (not keys)
+    If `add_prefix` is specified, adds the prefix to each value:
+        [a, b, c] with prefix "x" -> ['x.a', 'x.b', 'x.c']
     """
     try:
-        # Clean string a bit
-        s = s.replace(";", "").replace("(", "<fn").replace(")", ">")
-        res = ast.literal_eval(s)
-        if not (isinstance(res, list) or isinstance(res, dict)):
-            raise ValueError("Need to specify a list or dict after `->` or `+>`")
-        # Add a prefix to list/dict values if specified
-        if add_prefix and isinstance(res, list):
-            res = [f"{add_prefix}.{s}" for s in res]
-        elif add_prefix and isinstance(res, dict):
-            res = {k: f"{add_prefix}.{v}" for k, v in res.items()}
-        return res
-    except (ValueError, SyntaxError):
+        # Validate list format
+        if not (s.startswith("[") and s.endswith("]")):
+            raise ValueError("Input must be wrapped in []")
+
+        # Extract and clean items
+        content = s[1:-1]  # Remove outer brackets
+        items = [item.strip() for item in content.split(",") if item.strip()]  # Skip empty items
+
+        # Add prefix if specified
+        if add_prefix:
+            items = [f"{add_prefix}.{item}" for item in items]
+
+        return items
+
+    except ValueError:
         return None
-
-
-def _agg_list_to_polars_expr(agg_list_str: str) -> list[pl.Expr] | Err:
-    """
-    Takes something like:
-        - "a -> ['*'.len()]"
-        - "a -> ['b'.mean()]"
-        - "a -> ['b'.mean(), 'c'.median()]
-      and turns it into:
-        - [pl.col('*').len()]
-        - [pl.col('b').mean()]
-        - [pl.col('b').mean(), pl.col('c').median()]
-
-    Supported aggregation functions:
-    - `len()`
-    - `sum()`, `mean()`
-    - `max()`, `min()`, `median()`
-    - `std()`, `var()`
-    """
-
-    # Split into cols and aggregators
-    # First split by commas to get each individual part
-    # For each part:
-    #  - Assume if `()` is present, it's an aggregator for the last noted col (in quotes)
-    #  - Assume the first item must be a col name, and the first character must be a quote
-    agg_cols = agg_list_str.split(",")
-    agg_parts = []
-    for col in agg_cols:
-        col_parts = re.split(PERIOD_UP_TO_NEXT_CLOSE_PARENS, col)
-        agg_parts.extend(col_parts)
-    quote = agg_parts[0][0]
-    if quote not in {'"', "'"}:
-        return Err(f"Need to have column expressions in quotes, got `{agg_parts[0]}`")
-    lexed_agg_list_str = str([p.strip(quote) for p in agg_parts if p != ""])
-    parsed_agg_list_str = _extract_list_or_dict(
-        lexed_agg_list_str
-    )  # NOTE: this fn replaces `()` from the string with `<fn>`
-    if parsed_agg_list_str is None:
-        return Err(f"Could not parse expression `{agg_list_str}`")
-
-    # Apply the appropriate aggregation function
-    res = []
-    curr_expr: pl.Expr | None = None
-    for agg_part in parsed_agg_list_str:
-        if not agg_part.endswith("<fn>"):
-            # Assume default `all()` if nothing specified
-            if curr_expr is not None:
-                res.append(curr_expr.all())
-            # Set-up next aggregator
-            curr_expr = pl.col(agg_part)
-        else:
-            # NOTE: each of these aggregators will be considered "terminal". No chaining currently
-            #   ... also no logic-checking / correcting. Just handling as-is!
-            if not isinstance(curr_expr, pl.Expr):
-                return Err(
-                    f"Error when handling aggregation expression, tried to aggregate incorrect type: {curr_expr}"
-                )
-            match agg_part:
-                case "len<fn>":
-                    curr_expr = curr_expr.len()
-                case "sum<fn>":
-                    curr_expr = curr_expr.sum()
-                case "mean<fn>":
-                    curr_expr = curr_expr.mean()
-                case "max<fn>":
-                    curr_expr = curr_expr.max()
-                case "min<fn>":
-                    curr_expr = curr_expr.min()
-                case "median<fn>":
-                    curr_expr = curr_expr.median()
-                case "std<fn>":
-                    curr_expr = curr_expr.std()
-                case "var<fn>":
-                    curr_expr = curr_expr.var()  # .alias(f"{curr_expr.meta.output_name()}_sum")
-                case _:
-                    return Err(f"Got unsupported aggregator: {agg_part}")
-            # Rename column based on the aggregator
-            #   Handle the `*` case by checking for root name
-            agg_suffix = agg_part.removesuffix("<fn>")
-            if root_names := curr_expr.meta.root_names():
-                curr_expr = curr_expr.alias(f"{root_names[0]}_{agg_suffix}")
-            else:
-                # The `*` case -- add a suffix
-                curr_expr = curr_expr.name.suffix(f"_{agg_suffix}")
-            res.append(curr_expr)
-            curr_expr = None
-
-    # Handle last item case (e.g. `b` for "a, b")
-    if curr_expr is not None:
-        res.append(curr_expr.all())
-
-    return res
