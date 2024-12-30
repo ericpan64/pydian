@@ -7,7 +7,7 @@ __all__ = [
     "RGC",
     "Rule",
     "RuleGroup",
-    "core",
+    "validate",
     "IsOptional",
     "IsRequired",
     "InRange",
