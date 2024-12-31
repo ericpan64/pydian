@@ -3,12 +3,8 @@ from contextlib import contextmanager
 from typing import Any
 
 from ..lib.types import DROP, KEEP, MappingFunc
-from ..lib.util import (
-    drop_keys,
-    get_keys_containing_class,
-    impute_enum_values,
-    remove_empty_values,
-)
+from ..lib.util import remove_empty_values
+from .util import drop_keys, get_keys_containing_class, impute_enum_values
 
 _MapperContextStrict = contextvars.ContextVar("_MapperContextStrict", default=None)
 

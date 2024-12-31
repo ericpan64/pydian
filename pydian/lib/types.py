@@ -1,3 +1,7 @@
+"""
+Types that can be used across all modules
+"""
+
 from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeAlias

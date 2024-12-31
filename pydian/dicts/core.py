@@ -2,8 +2,9 @@ from collections.abc import Iterable
 from typing import Any
 
 from ..lib.types import DROP, ApplyFunc, ConditionalCheck
-from ..lib.util import _nested_get, flatten_list, get_tokenized_keypath
+from ..lib.util import flatten_list
 from .mapper import _MapperContextStrict
+from .util import _nested_get, get_tokenized_keypath
 
 
 def get(
