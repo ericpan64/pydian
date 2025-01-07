@@ -2,7 +2,7 @@
 name = "pydian"
 version = "0.5.0"
 description = "Library for pythonic data interchange"
-authors = ["Eric Pan <eric.pan@stanford.edu>"]
+authors = ["Eric Pan <epan64.dev@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
