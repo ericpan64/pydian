@@ -12,8 +12,6 @@ from pydian.validation.pydantic import create_pydantic_model
 from pydian.validation.specific import InRange, IsOptional, IsRequired, IsType
 
 
-# TODO: add tests for pydantic validation generation (expand RuleGroup, or keep unnested?)
-# NEXT STEP:
 def test_pydantic(simple_data: dict[str, Any]) -> None:
     """
     A pydantic implementation: ensure interop and consistent behavior!
@@ -117,7 +115,6 @@ def test_validation_map_gen() -> None:
         )
     }
 
-    # TODO: List examples
     v_pass_list = {"list_data": InRange(3, 5) & [dict]}  # Conditions in [] are OR-ed by default
 
     assert v_pass_list == {
@@ -180,7 +177,6 @@ def test_validate(simple_data: dict[str, Any]) -> None:
     # List validation -- example of pass
     # NOTE: If a field is not included in validation dict, then it's ignored
     #       E.g. here, we ignore the `simple_data["data"]` field by omission
-    # TODO: -- get this to pass
     list_check_dict = {"list_data": InRange(3, 5) & [dict]}
     v_ok_list = validate(simple_data, list_check_dict)
     assert isinstance(v_ok_list, Ok)

@@ -1,0 +1,29 @@
+# === Get DSL ===
+#  NOTE: Assume whitespace is removed beforehand
+get_expr = key (dot key)*
+key = (list_op / single / tuple)
+
+# === Actionable Units ===
+single = name single_index?
+list_op = name? multi_index
+tuple = lparen nested_expr (comma nested_expr)* rparen
+
+# === Intermediate Representation ===
+single_index = lbrack number rbrack
+multi_index = lbrack (star / slice) rbrack
+slice = number? colon number?
+nested_expr = key (dot key)*  # Re-defining so can handle behavior diff
+
+# === Primitives ===
+lbrack = "["
+rbrack = "]"
+lparen = "("
+rparen = ")"
+comma = ","
+colon = ":"
+dot = "."
+star = "*"
+
+# === Lexemes ===
+name = ~"[a-zA-Z_][a-zA-Z0-9_]*"
+number = ~"-?[0-9]+"

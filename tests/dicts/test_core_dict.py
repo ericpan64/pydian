@@ -22,27 +22,34 @@ def test_get(simple_data: dict[str, Any]) -> None:
 def test_get_index(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
-    # Indexing
+    # Indexing (single_index)
     assert get(source, "list_data[0].patient") == source["list_data"][0]["patient"]
     assert get(source, "list_data[1].patient") == source["list_data"][1]["patient"]
     assert get(source, "list_data[5000].patient") is None
     assert get(source, "list_data[-1].patient") == source["list_data"][-1]["patient"]
-    # Slicing
+    # Slicing (multi_index)
     assert get(source, "list_data[1:3]") == source["list_data"][1:3]
     assert get(source, "list_data[1:]") == source["list_data"][1:]
     assert get(source, "list_data[:2]") == source["list_data"][:2]
     assert get(source, "list_data[:]") == source["list_data"][:]
+    # Slice then index (multi_index -> single_index)
+    assert get(source, "list_data[1:3].patient") == [s["patient"] for s in source["list_data"][1:3]]
+    assert get(source, "list_data[1:].patient") == [s["patient"] for s in source["list_data"][1:]]
+    assert get(source, "list_data[:2].patient") == [s["patient"] for s in source["list_data"][:2]]
+    assert get(source, "list_data[:].patient") == [s["patient"] for s in source["list_data"][:]]
 
 
 def test_get_from_list(list_data: list[Any]) -> None:
     source = list_data
 
     assert get(source, "[*].patient") == [p["patient"] for p in source]
-    assert get(source, "[*].patient.id") == [p["patient"]["id"] for p in source]
-    assert get(source, "[0].patient.id") == source[0]["patient"]["id"]
-    assert get(source, "[-1].patient.id") == source[-1]["patient"]["id"]
+    assert get(source, "[:].patient.id") == [p["patient"]["id"] for p in source]
     assert get(source, "[0:2].patient.id") == [p["patient"]["id"] for p in source[0:2]]
     assert get(source, "[-2:].patient.id") == [p["patient"]["id"] for p in source[-2:]]
+
+    # NOTE: Single-grab list operations aren't supported.
+    # assert get(source, "[0].patient.id") == source[0]["patient"]["id"]  # Try `get(source[0], "patient.id")` instead
+    # assert get(source, "[-1].patient.id") == source[-1]["patient"]["id"]  # Try `get(source[-1], "patient.id")` instead
 
 
 def test_nested_get(nested_data: dict[str, Any]) -> None:
@@ -50,8 +57,18 @@ def test_nested_get(nested_data: dict[str, Any]) -> None:
 
     assert get(source, "data[*].patient.active") == [True, False, True, True]
     assert get(source, "data[*].patient.id") == ["abc123", "def456", "ghi789", "jkl101112"]
-    assert get(source, "data[*].patient.ints") == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
-    assert get(source, "data[*].patient.ints", flatten=True) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert get(source, "data[*].patient.ints") == [[1, 2, 3], [4, 5, 6], [7, 8, 9], None]
+    assert get(source, "data[*].patient.ints", flatten=True) == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+    ]  # TODO: Should this include the `None`?
     assert get(source, "data[*].patient.dicts[*].num") == [[1, 2], [3, 4], [5, 6], [7]]
     assert get(source, "data[*].patient.dicts[*].num", flatten=True) == [1, 2, 3, 4, 5, 6, 7]
     assert get(source, "missing.key") is None
@@ -106,11 +123,6 @@ def test_get_only_if(simple_data: dict[str, Any]) -> None:
 def test_get_single_key_tuple(simple_data: dict[str, Any]) -> None:
     source = simple_data
 
-    assert get(source, "data.patient.[id,active]") == [
-        source["data"]["patient"]["id"],
-        source["data"]["patient"]["active"],
-    ]
-
     # Handle tuple case
     assert get(source, "data.patient.(id,active)") == (
         source["data"]["patient"]["id"],
@@ -118,41 +130,41 @@ def test_get_single_key_tuple(simple_data: dict[str, Any]) -> None:
     )
 
     # Allow whitespace within brackets
-    assert get(source, "data.patient.[id, active]") == get(source, "data.patient.[id,active]")
-    assert get(source, "data.patient.[id,active,missingKey]") == [
+    assert get(source, "data.patient.( id, active )") == get(source, "data.patient.(id,active)")
+    assert get(source, "data.patient.(id,active,missingKey)") == (
         source["data"]["patient"]["id"],
         source["data"]["patient"]["active"],
         None,
-    ]
+    )
 
     # Expect list unwrapping to still work
-    assert get(source, "list_data[*].patient.[id, active]") == [
-        [p["patient"]["id"], p["patient"]["active"]] for p in source["list_data"]
+    assert get(source, "list_data[*].patient.(id, active)") == [
+        (p["patient"]["id"], p["patient"]["active"]) for p in source["list_data"]
     ]
-    assert get(source, "list_data[*].patient.[id, active, missingKey]") == [
-        [p["patient"]["id"], p["patient"]["active"], None] for p in source["list_data"]
+    assert get(source, "list_data[*].patient.(id, active, missingKey)") == [
+        (p["patient"]["id"], p["patient"]["active"], None) for p in source["list_data"]
     ]
 
     # Test default (expect at each tuple item on a failed get)
     STR_DEFAULT = "Missing!"
-    assert get(source, "data.patient.[id, active, missingKey]", default=STR_DEFAULT) == [
+    assert get(source, "data.patient.(id, active, missingKey)", default=STR_DEFAULT) == (
         source["data"]["patient"]["id"],
         source["data"]["patient"]["active"],
         STR_DEFAULT,
-    ]
+    )
 
-    # Test apply
+    # Test apply onto tuple
     assert (
-        get(source, "data.patient.[id, active, missingKey]", apply=p.index(1))
+        get(source, "data.patient.(id, active, missingKey)", apply=p.index(1))
         == source["data"]["patient"]["active"]
     )
-    assert get(source, "data.patient.[id, active, missingKey]", apply=p.keep(2)) == [
+    assert get(source, "data.patient.(id, active, missingKey)", apply=p.keep(2)) == (
         source["data"]["patient"]["id"],
         source["data"]["patient"]["active"],
-    ]
+    )
 
     # Test only_if filtering
-    assert get(source, "data.patient.[id, active, missingKey]", only_if=lambda _: False) is None
+    assert get(source, "data.patient.(id, active, missingKey)", only_if=lambda _: False) is None
 
 
 def test_get_nested_key_tuple(nested_data: dict[str, Any]) -> None:
@@ -160,23 +172,23 @@ def test_get_nested_key_tuple(nested_data: dict[str, Any]) -> None:
 
     # Single item example
     single_item_example = source["data"][0]["patient"]["dicts"][0]
-    assert get(source, "data[0].patient.dicts[0].[num, text]") == [
+    assert get(source, "data[0].patient.dicts[0].(num, text)") == (
         single_item_example["num"],
         single_item_example["text"],
-    ]
-    assert get(source, "data[0].patient.dicts[0].[num,inner.msg]") == [
+    )
+    assert get(source, "data[0].patient.dicts[0].(num, inner.msg)") == (
         single_item_example["num"],
         single_item_example["inner"]["msg"],
-    ]
+    )
 
     # Multi-item example
-    assert get(source, "data[*].patient.dict.[char, inner.msg]") == [
-        [d["patient"]["dict"]["char"], d["patient"]["dict"]["inner"]["msg"]] for d in source["data"]
+    assert get(source, "data[*].patient.dict.(char, inner.msg)") == [
+        (d["patient"]["dict"]["char"], d["patient"]["dict"]["inner"]["msg"]) for d in source["data"]
     ]
 
     # Multi-item on multi-[*] example
-    assert get(source, "data[*].patient.dicts[*].[num, inner.msg]") == [
-        [[obj["num"], obj["inner"]["msg"]] for obj in d["patient"]["dicts"]] for d in source["data"]
+    assert get(source, "data[*].patient.dicts[*].(num, inner.msg)") == [
+        [(obj["num"], obj["inner"]["msg"]) for obj in d["patient"]["dicts"]] for d in source["data"]
     ]
 
 

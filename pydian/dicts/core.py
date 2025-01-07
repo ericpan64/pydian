@@ -1,8 +1,8 @@
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Sequence
 
 from ..lib.types import DROP, ApplyFunc, ConditionalCheck
-from ..lib.util import flatten_list
+from ..lib.util import flatten_sequence
 from .mapper import _MapperContextStrict
 from .util import _nested_get, get_tokenized_keypath
 
@@ -46,8 +46,8 @@ def get(
     else:
         res = default
 
-    if flatten and isinstance(res, list):
-        res = flatten_list(res)
+    if flatten and isinstance(res, Sequence):
+        res = type(res)(flatten_sequence(res))  # type: ignore
 
     if res is not None and only_if:
         res = res if only_if(res) else None

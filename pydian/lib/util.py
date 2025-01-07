@@ -3,10 +3,12 @@ Utility functions that can be used across modules. Meant to be for primitive typ
 """
 
 from collections.abc import Collection
-from itertools import chain
-from typing import Any, TypeVar
+from typing import Any, Generator, Sequence, TypeVar
+
+from .types import KEEP
 
 DL = TypeVar("DL", dict[str, Any], list[Any], Any)
+LT = TypeVar("LT", list[Any], tuple[Any], Any)
 
 
 def remove_empty_values(input: DL) -> DL:
@@ -36,14 +38,20 @@ def has_content(obj: Any) -> bool:
     return res
 
 
-def flatten_list(res: list[list[Any]]) -> list[Any]:
+def flatten_sequence(res: LT) -> Generator:
     """
-    Flattens a list-of-list
+    Recursively flattens nested lists and tuples
+
+    NOTE: This also unwraps `KEEP` values (pydian-specific)
+
     E.g. Given:    [[1, 2, 3], [4, 5, 6], None, [7, 8, 9]]
-         Returns:  [1, 2, 3, 4, 5, 6, 7, 8, 9]
+         Returns:  Generator([1, 2, 3, 4, 5, 6, 7, 8, 9])
     """
-    if res_without_nones := [l for l in res if (l is not None) and (isinstance(l, list))]:
-        res = list(chain.from_iterable(res_without_nones))
-        # Handle nested case
-        res = flatten_list(res)
-    return res
+    for item in res:
+        if isinstance(item, (list, tuple)):
+            # NOTE: Cannot use `Sequence` type, since a `str` is a sequence and recurses infinitely
+            yield from flatten_sequence(item)
+        elif isinstance(item, KEEP):
+            yield item.value
+        elif item is not None:
+            yield item
