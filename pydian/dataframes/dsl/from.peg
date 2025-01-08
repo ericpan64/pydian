@@ -1,0 +1,32 @@
+# === Select DSL - 2. From expression ===
+
+#  NOTE: Assume all whitespace is removed
+from_expr = join_expr / union_expr
+
+# === Actionable Units ===
+join_expr = join_options (join_op table_alias on_expr?)*  # TODO: In-code, expect `on_expr` for joins
+join_options = simple_join / subquery / (lparen join_expr rparen)
+union_expr = table_alias (pplus table_alias)+
+
+# === Intermediate Representation ===
+simple_join = table_alias join_op table_alias on_expr
+subquery = lparen select_expr rparen
+select_expr = ~".*"  # Assume select expression can be expressed as partial
+join_op = (larrow / diamond / pplus)
+on_expr = ~"(?i)\bon\b" lbrack name_list rbrack
+name_list = name (comma name)*
+
+# === Primitives ===
+lbrack = "["
+rbrack = "]"
+lparen = "("
+rparen = ")"
+comma = ","
+pplus = "++"
+larrow = "<-"
+diamond = "<>"
+
+
+# === Lexemes ===
+name = ~"[a-zA-Z_][a-zA-Z0-9_]*"
+table_alias = ~"[A-Z]"

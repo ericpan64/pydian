@@ -12,6 +12,7 @@ from result import Err
 from pydian.dataframes.core import select
 
 
+# TODO: Change the order for all `assert_frame_equal` (expected ___ on left, got ___ on right)
 def test_select(simple_dataframe: pl.DataFrame) -> None:
     source = simple_dataframe
 

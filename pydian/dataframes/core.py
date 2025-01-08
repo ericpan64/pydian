@@ -4,21 +4,13 @@ from typing import Any, Callable
 import polars as pl
 from result import Err
 
-from .util import apply_nested_col_list, generate_polars_filter
+from .util import JoinExpr, TableExpr, UnionExpr, parse_select_dsl
 
-# `Bracket` is `[]`, `Braces` is `{}`
-COMMAS_IGNORING_BRACKETS_BRACES = r",(?![^{}\[\]]*[}\]])"
-COLONS_IGNORING_BRACES = r":(?![^{]*})"
-PERIOD_UP_TO_NEXT_CLOSE_PARENS = r"\.(.*?\))"
-STR_WITHIN_BRACKETS = r"\[([^\]]+)\]"
-
-FROM_KEYWORD = re.compile(r"\bFROM\b", re.IGNORECASE)
-ON_KEYWORD = re.compile(r"\bON\b", re.IGNORECASE)
-ON_COLS_PATTERN = r"\bon\s*\[(.*?)\]"  # TODO: refactor this at some point, it's a hack
+# from .util import apply_nested_col_list, generate_polars_filter
 
 # Alright. Only support up to 26 tables max at a time. That's it. No exceptions! \s
-TABLE_ALIASES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
+SOURCE_TABLE_ALIAS = "A"
+OTHER_TABLE_ALIASES = "BCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 def select(
     source: pl.DataFrame,
@@ -29,6 +21,9 @@ def select(
     """
     Selects a subset of a DataFrame. `key` has some convenience functions
 
+    NOTE: By default, the pydian DSL uses `A` as an alias for `source`,
+          and `B`, `C`, etc. (up to `Z`) for corresponding dataframes in `others`
+
     `key` notes:
     - query syntax:
         - "*" -- all columns
@@ -36,153 +31,87 @@ def select(
         - "a, b : [c > 3]" -- columns a, b where column c > 3
         - "* : [c != 3]" -- all columns where column c != 3
         - "dict_col -> [a, b, c]" -- "dict_col.a, dict_col.b, dict_col.c"
-    NOTE: For the rest of these operations, only _one_ of each kind is currently supported
-    NOTE: By default, the pydian DSL uses `A` as an alias for `source`,
-          and `B`, `C`, etc. (up to `Z`) for corresponding dataframes in `others`
     - join synytax:
         - "a, b from A <- B on [col_name]" -- outer left join onto `col_name`
         - "* from A <> B on [col_name]" -- inner join on `col_name`
         - "* from A ++ B" -- append B into A (whatever columns match)
-        - "* from A => groupby[col_name | sum(), max()]"
+        - "* from (...) <> B on [col_name]" -- subquery tables
     - groupby synax:
+        - "* => groupby[col_name | sum(), max()]"
         - "col_name, other_col from A => groupby[col_name]"
         - "col_name, other_col_sum from A => groupby[col_name | sum()]"
         - "* from A => groupby[col_name, other_col | n_unique(), sum()]
-    # TODO: decide on how to do subqueries and whatnot. Probably after figuring out better parsing strategy
-    #       (will need to do that with `get` too -- CFG time? Probably!)
-    # TODO: make the bracket syntax consistent (e.g. `where[...]`, `on[...]`, etc.)
-    # So: currently only supports one join (do a CFG to properly support multiple)
 
     `rename` is the standard Polars API call and is called at the very end
     """
+    colname_expr_list, from_expr_list, table_expr_list = parse_select_dsl(key)
 
-    # `from` logic (apply if applicable)
-    # Identify if `join`, `union`, or `groupby` logic applies
-    if re.search(FROM_KEYWORD, key):
-        key, clause = re.split(FROM_KEYWORD, key, maxsplit=1)
-        # TODO: This only allows 1 operation per query, figure out how to do multiple
-        if "++" in clause:
-            source = _try_union(clause, source, others)  # type: ignore
-        elif " on " in clause.lower():
-            source = _try_join(clause, source, others)  # type: ignore
-        elif "=>" in clause:
-            # TODO: would be cool to also support `orderby` here too
-            source = _try_groupby(clause, source, others)  # type: ignore
-        else:
-            raise RuntimeError("Error: missing/unsupported operation in `from` clause")
-        if isinstance(source, Err):
-            return source
+    raise RuntimeError("DEBUG: Parsed successfully!")
+    res = source
 
-    # Extract `:`-based query syntax from key (if present)
-    key = key.replace(" ", "")  # Remove whitespace
-    query: pl.Expr | None = None
-    if re.search(COLONS_IGNORING_BRACES, key):
-        key, query_str = re.split(COLONS_IGNORING_BRACES, key, maxsplit=1)
-        query_str = query_str.strip("[]")
-        query = generate_polars_filter(query_str)
-    ## Filter if the query is used
-    if isinstance(query, pl.Expr):
-        source = source.filter(query)
+    # 1. Do joins (if present)
+    #    Expect a series of `JoinExpr` which should be applied in-order
+    if len(from_expr_list) == 0 and others is not None:
+        raise RuntimeError("`others` provided but not used -- please remove to save memory!")
+    for from_expr in from_expr_list:
+        try:
+            # Assume the size of `others` matches things found in expression language
+            assert others is not None  # TODO: remove this after testing
+            lhs, rhs = _identify_lhs_rhs(res, others, from_expr)
+            match from_expr:
+                case JoinExpr():
+                    # Perform the join
+                    res = lhs.join(rhs, on=from_expr.on_cols, how=from_expr.join_type.lower())
+                    # TODO: define behavior if there's no change after the join - `Err` or leave alone?
+                case UnionExpr():
+                    # Perform the union
+                    res = lhs.vstack(rhs)
+                    # TODO: define `Err` behavior if union fails?
+                case _typ:
+                    raise RuntimeError(f"Got unexpected operation type: {_typ}")
+        except pl.InvalidOperationError:
+            return Err(f"Got unexpected operation: {from_expr}")
 
-    # Main `query` logic (columns and ., ->)
+    # 2. Do select
     try:
-        # Grab correct subset/slice of the dataframe
-        parsed_col_list = re.split(
-            COMMAS_IGNORING_BRACKETS_BRACES, key
-        )  # Get distinct space for each column name
-        res = apply_nested_col_list(source, parsed_col_list)
-        # Post-processing checks
-        if res.is_empty():
-            raise pl.exceptions.ColumnNotFoundError
-    except pl.exceptions.ColumnNotFoundError:
-        return Err("<Default Err> `select` key didn't match anything (ColumnNotFoundError)")
+        res = res.select(colname_expr_list)
+    except pl.ColumnNotFoundError as e:
+        return Err(f"Got unexpected column: {e}")
 
-    # TODO: Consider supporting regex search and pattern replacements (e.g. prefix_* -> new_prefix_*)
+    # 3. Do group operators (if present)
+    for table_expr in table_expr_list:
+        try:
+            match table_expr.op_type:
+                case "GROUPBY":
+                    res = res.group_by(table_expr.on_cols, maintain_order=True).agg(
+                        table_expr.agg_fns
+                    )
+                case "ORDERBY":
+                    res.sort(table_expr.on_cols)
+
+        except pl.InvalidOperationError:
+            return Err(f"Failed to apply operation: {table_expr}")
+
+    # Do `rename` if provided and have a dataframe at the end
     if rename and isinstance(res, pl.DataFrame):
         res = res.rename(rename)
 
     return res
 
 
-def _try_join(
-    join_clause: str,
-    source: pl.DataFrame,
-    others: pl.DataFrame | list[pl.DataFrame] | None = None,
-) -> pl.DataFrame | Err:
+def _identify_lhs_rhs(
+    source: pl.DataFrame, others: pl.DataFrame | list[pl.DataFrame], from_expr: JoinExpr | UnionExpr
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     """
-    Attempts to do `join` based on the provided key
+    Searches through given aliases to get the "correct" table object
 
-    NOTE: This just does one join for now. So no nested nonsense (yet)
+    E.g. `A` -> source, `B` -> others[0], `C` -> others[1], ... `Z` -> others[25]
     """
-    how = "left" if "<-" in join_clause else "inner" if "<>" in join_clause else None
-    if not isinstance(others, list):
-        others = [others]  # type: ignore
-    # join_alias_names = list(TABLE_ALIASES[:len(others) + 2])
-    # HACK: Alright. Just do the join on one thing for now. Fix this with a CFG implementation.
-    if match := re.search(ON_COLS_PATTERN, join_clause, re.IGNORECASE):
-        on = [col.strip() for col in match.group(1).split(",")]
-    else:
-        return Err("No join columns specified in brackets after 'on'")
-
-    # Alright. Actually do the join
-    second = others[0]
-    try:
-        # If _any_ of the provided indices aren't there, return `Err`
-        if isinstance(on, str):
-            on = [on]
-        for c in on:
-            if not (c in source.columns and c in second.columns):
-                raise KeyError(f"Proposed key {c} is not in either column!")
-    except KeyError as e:
-        return Err(f"Failed pre-merge checks for {how} join: {str(e)}")
-
-    res = source.join(second, how=how, on=on, join_nulls=False, coalesce=True)  # type: ignore
-
-    # NOTE: checking if left join didn't match anything (can't just do empty check bc it's outer join)
-    if how == "left":
-        # If there were no matches, then return `Err`
-        #  Check for non-null cols after the left-join
-        matched = True
-        for col_name in second.columns:
-            matched = matched and res.filter(pl.col(col_name).is_not_null()).height > 0
-        if not matched:
-            return Err("No matching columns on left join")
-
-    return res if not res.is_empty() else Err("Empty dataframe after join")
-
-
-def _try_union(
-    merge_clause: str,
-    source: pl.DataFrame,
-    other=pl.DataFrame,
-    na_default: Any = None,
-) -> pl.DataFrame | Err:
-    """
-    Inserts rows into the end of the DataFrame
-
-    For a row, if a value is not specified it will be filled with the specified default
-
-    If the union operation cannot be done (e.g. incompatible columns), returns `Err`
-    """
-    # HACK: Going to revisit this with CFG parsing. For now, just assume it's just "A ++ B"
-    rows = other
-
-    # Ensure all columns in `into` are present in `rows`
-    for col in source.columns:
-        if col not in rows.columns:
-            rows = rows.with_columns(pl.lit(na_default).alias(col))
-
-    # Ensure all columns in `rows` are present in `into`
-    for col in rows.columns:
-        if col not in source.columns:
-            source = source.with_columns(pl.lit(na_default).alias(col))
-
-    try:
-        res = pl.concat([source, rows])
-    except Exception as e:
-        return Err(f"Error when unioning: {str(e)}")
-
-    return res
+    lhs_idx = OTHER_TABLE_ALIASES.find(from_expr.lhs)
+    rhs_idx = OTHER_TABLE_ALIASES.find(from_expr.rhs)
+    lhs = source if (from_expr.lhs == SOURCE_TABLE_ALIAS) else others[lhs_idx - 1]
+    rhs = source if (from_expr.rhs == SOURCE_TABLE_ALIAS) else others[rhs_idx - 1]
+    return (lhs, rhs)
 
 
 def _try_groupby(
@@ -217,6 +146,7 @@ def _try_groupby(
     # HACK: handle default the simple way
     DEFAULT_STR = "default"
     # Parse `groupby_clause` str into halfs
+    STR_WITHIN_BRACKETS = r"\[([^\]]+)\]"
     bracket_str_list: list[str] = re.findall(STR_WITHIN_BRACKETS, groupby_clause)
     if not bracket_str_list:
         raise RuntimeError(f"Invalid structure for `groupby` clause: {groupby_clause}")

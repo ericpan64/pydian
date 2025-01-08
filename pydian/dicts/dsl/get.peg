@@ -12,7 +12,7 @@ tuple = lparen nested_expr (comma nested_expr)* rparen
 single_index = lbrack number rbrack
 multi_index = lbrack (star / slice) rbrack
 slice = number? colon number?
-nested_expr = key (dot key)*  # Re-defining so can handle behavior diff
+nested_expr = key (dot key)*  # Re-defining so can handle separately
 
 # === Primitives ===
 lbrack = "["

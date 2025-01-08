@@ -1,0 +1,26 @@
+# === Select DSL - 1. Column names ===
+
+#  NOTE: Assume all whitespace is removed
+colname_expr = (star / colname_list) (filter_expr)?
+
+# === Actionable Units ===
+colname_list = name_expr (comma name_expr)*
+
+# === Intermediate Representation ===
+filter_expr = colon lbrack filter_cols rbrack
+name_expr = colname arrow_op?
+arrow_op = arrow lbrack colname (comma colname)* rbrack
+
+# === Primitives ===
+lbrack = "["
+rbrack = "]"
+comma = ","
+colon = ":"
+star = "*"
+arrow = "->"
+
+# === Lexemes ===
+filter_cols = ~".*"  # NOTE: Assume this is python-like syntax, parsed in other AST code
+colname = (name / get_expr) # Try to match to plaintext name first
+get_expr = ~".*"  # Negative lookbehind ensures it doesn't end with "from"
+name = ~"[a-zA-Z_][a-zA-Z0-9_]*"

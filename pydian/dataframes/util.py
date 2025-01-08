@@ -1,6 +1,160 @@
 import ast
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Iterable, Literal, Sequence, TypeAlias
 
 import polars as pl
+from parsimonious.grammar import Grammar
+from parsimonious.nodes import Node, NodeVisitor
+
+from ..dicts.core import get
+from ..lib.types import KEEP
+from ..lib.util import flatten_sequence
+
+COLNAMES_DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl/colnames.peg").read_text())
+FROM_DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl/from.peg").read_text())
+GROUP_DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl/group.peg").read_text())
+
+# fmt: off
+TableAlias: TypeAlias = Literal["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",   
+                                "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
+# fmt: on
+
+@dataclass(frozen=True)
+class FromExpr:
+    lhs: TableAlias
+    rhs: TableAlias
+
+@dataclass(frozen=True)
+class JoinExpr(FromExpr):
+    join_type: Literal["LEFT", "INNER"]
+    on_cols: list[str]
+
+
+@dataclass(frozen=True)
+class UnionExpr(FromExpr):
+    pass
+
+@dataclass(frozen=True)
+class GroupExpr:
+    op_type: Literal["GROUPBY", "ORDERBY"]
+    on_cols: list[str]
+    agg_fns: list[pl.Expr]
+
+
+SelectDslTreeResult: TypeAlias = tuple[list[pl.Expr], list[FromExpr], list[GroupExpr]]
+
+class SelectDSLVisitor(NodeVisitor):
+    """Class for parsing the `select` DSL. NOTE: outputs with `parse_select_dsl`"""
+
+    # === Top-level ===
+    def visit_select_expr(self, node: Node, visited_children: Sequence[Any]) -> SelectDslTreeResult:
+        """
+        # TODO: How does this handle recursive structure? Does it need to?
+        #       ... to start: KISS!
+        Parses the select expression and returns a list of operations to apply.
+
+         Each operation contains 3 things:
+            1. A list of polars expressions
+            2. (if present) A tuple of join operations to apply in-order
+            3. (if present) A tuple of other operations to apply in-rder
+        """
+        # Process `colname_expr`
+        colname_expr_list: list[pl.Expr] = []
+
+        # Process `(from_expr)?`
+        from_expr_list: list[JoinExpr] = []
+
+        # Process `(table_expr)?`
+        table_expr_list: list[GroupExpr] = []
+
+        return (colname_expr_list, from_expr_list, table_expr_list)
+
+    # === Actionable Units ===
+    def visit_colname_expr(self, node: Node, visited_children: Sequence[Any]) -> list[pl.Expr]:
+        """ """
+        ...
+
+    def visit_from_expr(self, node: Node, visited_children: Sequence[Any]):
+        ...
+
+    def visit_op_expr(self, node: Node, visited_children: Sequence[Any]):
+        ...
+
+    # === Intermediate Representation ===
+    def visit_name_arrow(self, node: Node, visited_children: Sequence[Any]):
+        ...
+    
+    def filter_expr(self, node: Node, visited_children: Sequence[Any]):
+        ...
+
+    def visit_get_expr(self, node: Node, visited_children: Sequence[Any]):
+        return node.text
+
+    ...
+
+    # === Primitives / Lexemes (non-ignored) ===
+    def visit_name(self, node: Node, visited_children: Sequence[Any]) -> str:
+        return node.text
+
+    # === ... everything else ===
+    def generic_visit(
+        self, node: Node, visited_children: Sequence[Any]
+    ) -> Sequence[Any] | Any | None:
+        """Default handler for unspecified rules"""
+        # Generic behavior: return either
+        #   1) multiple remaining child nodes
+        #   2) a single remaining child node
+        #   3) `None` if there's no children
+        if len(visited_children) > 1:
+            return visited_children
+        elif len(visited_children) == 1:
+            return visited_children[0]
+        else:
+            return None
+
+
+def parse_select_dsl(key: str) -> tuple[list[pl.Expr], list[JoinExpr | UnionExpr], list[GroupExpr]]:
+    """
+    Parses the corresponding key and returns a tuple containing:
+      1. colname_expr: A list of polars expressions
+      2. from_expr: A list of join expressions to apply
+      3. table_expr: A list of grouped operations to apply
+
+    Grammar is defined in `dataframes/dsl.peg`
+    """
+    # Split into different parts
+    FROM_SPLIT = r"\s+from\s+"
+    GROUP_SPLIT = "=>"
+    contains_from_expr = re.search(FROM_SPLIT, key, re.I)
+    contains_group_expr = re.search(GROUP_SPLIT, key)
+    if contains_from_expr and contains_group_expr:
+        # TODO
+        colname_expr_list = ...
+        from_expr_list = ...
+        group_expr_list = ...
+    elif contains_from_expr:
+        # TODO
+        colname_expr_list = ...
+        from_expr_list = ...
+        group_expr_list = []
+    elif contains_group_expr:
+        # TODO
+        colname_expr_list = ...
+        from_expr_list = []
+        group_expr_list = ...
+    else:
+        # TODO
+        colname_expr = ...
+        colname_expr_list = []
+        from_expr_list, group_expr_list = [], []
+
+    
+    parsed_tree = SELECT_DSL_GRAMMAR.parse(key.replace(" ", ""))
+    # TODO: Split this out into different visitors
+    res = SelectDSLVisitor().visit(parsed_tree)
+    return (colname_expr_list, from_expr_list, group_expr_list)
 
 
 class PythonExprToPolarsExprVisitor(ast.NodeVisitor):
@@ -15,6 +169,8 @@ class PythonExprToPolarsExprVisitor(ast.NodeVisitor):
             expr = self.visit(node.values[0])
             for value in node.values[1:]:
                 expr = expr | self.visit(value)
+        else:
+            raise RuntimeError(f"Got unexpected BoolOp: {node.op}")
         return expr
 
     def visit_Compare(self, node):

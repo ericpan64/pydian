@@ -7,9 +7,9 @@ from parsimonious.nodes import Node, NodeVisitor
 from ..lib.types import DROP, KEEP
 from ..lib.util import flatten_sequence
 
-DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl.peg").read_text())
+GET_DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl/get.peg").read_text())
 
-DslTreeResults: TypeAlias = Union[str, int, slice, list[str], tuple[str, ...]]
+GetDslTreeResults: TypeAlias = Union[str, int, slice, list[str], tuple[str, ...]]
 
 
 def get_keys_containing_class(source: dict[str, Any], cls: type, key_prefix: str = "") -> set[str]:
@@ -82,7 +82,7 @@ def default_dsl(
     source: dict[str, Any] | list[Any],
     key: str,
     default: Any,
-    override_key: tuple[DslTreeResults, ...] | None = None,
+    override_key: tuple[GetDslTreeResults, ...] | None = None,
 ) -> Any:
     """
     Specifies a DSL (domain-specific language) to use when running `get`
@@ -146,9 +146,6 @@ def default_dsl(
                     res = res[item]  # type: ignore
         except (KeyError, IndexError):
             return default
-        except TypeError:
-            # DEBUG -- set the debugger here...
-            return ...
         if res is None:
             break
     return res
@@ -158,17 +155,16 @@ class GetDSLVisitor(NodeVisitor):
     """
     Generates tree structure which is handled in `get_tokenized_keypath`
 
-    The `KEEP` enum is used to signify
+    The `KEEP` enum is used to signify the structure has semantic purpose and shouldn't be unnested
     """
 
-    def __init__(self):
-        super().__init__()
-
     # === Top-level ===
-    def visit_get_expr(self, node: Node, visited_children: Sequence[Any]) -> list[DslTreeResults]:
+    def visit_get_expr(
+        self, node: Node, visited_children: Sequence[Any]
+    ) -> list[GetDslTreeResults]:
         """Entrypoint: handles full expression like 'a[0].b[*].c'"""
         # Keeping original nesting of `vistied_children` (structure depends on `dsl.peg` definition)
-        curr_expr: list[DslTreeResults] = []
+        curr_expr: list[GetDslTreeResults] = []
         for child in visited_children:
             # Ignore things that resolve to `None`
             if child is None:
@@ -222,7 +218,7 @@ class GetDSLVisitor(NodeVisitor):
         # NOTE: consider just calling `visit_get_expr`, though this way easier to debug...
         # TODO: Have this serialize in better way
         #       (e.g. it'll cast everything to str and lose info for super nested case)
-        curr_expr: list[DslTreeResults] = []
+        curr_expr: list[GetDslTreeResults] = []
         for child in visited_children:
             # Ignore things that resolve to `None`
             if child is None:
@@ -238,7 +234,7 @@ class GetDSLVisitor(NodeVisitor):
                 curr_expr.append(child)
         return ".".join(curr_expr)  # type: ignore
 
-    # === Primitives (non-ignored) ===
+    # === Primitives / Lexemes (non-ignored) ===
     def visit_name(self, node: Node, visited_children: Sequence[Any]) -> str:
         """Handle identifiers like 'a', 'b', 'c'"""
         return node.text
@@ -264,14 +260,16 @@ class GetDSLVisitor(NodeVisitor):
             return None
 
 
-def get_tokenized_keypath(key: str) -> tuple[DslTreeResults]:
+def get_tokenized_keypath(key: str) -> tuple[GetDslTreeResults]:
     """
     Returns a keypath with str, ints and slices separated. Prefer tuples so it is hashable.
 
     E.g.: "a[0].b[-1].c" -> ("a", 0, "b", -1, "c")
          "a[1:3]" -> ("a", slice(1,3))
+
+    Grammar is defined in `dicts/dsl.peg`
     """
-    parsed_tree = DSL_GRAMMAR.parse(key.replace(" ", ""))
+    parsed_tree = GET_DSL_GRAMMAR.parse(key.replace(" ", ""))
     res = GetDSLVisitor().visit(parsed_tree)
     return tuple(res)
 
