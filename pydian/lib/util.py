@@ -3,7 +3,7 @@ Utility functions that can be used across modules. Meant to be for primitive typ
 """
 
 from collections.abc import Collection
-from typing import Any, Generator, Sequence, TypeVar
+from typing import Any, Generator, TypeVar
 
 from .types import KEEP
 
