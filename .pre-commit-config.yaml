@@ -11,14 +11,14 @@ repos:
         name: Format python files
         entry: black
         files: ^.*.py$
-        language: python_venv
+        language: python
       - id: sort-imports
         name: Sort imports
         entry: isort --profile black
         files: ^.*.py$
-        language: python_venv
+        language: python
       - id: run-mypy
         name: Run mypy
         entry: mypy --ignore-missing-imports
         files: ^.*.py$
-        language: python_venv
+        language: python
