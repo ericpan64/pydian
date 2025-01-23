@@ -1653,4 +1653,4 @@ dataframes = ["polars"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "50b237bc19cb3048eb65fa40cf346964ffd2f1fb2d27bc22f2dc0a3b4a304b9d"
+content-hash = "fc7c0739bcaae8ccc7e8dc87f117af7bccb84dda0e14ffa7617eda9f1bd18ce5"

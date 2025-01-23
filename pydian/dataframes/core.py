@@ -12,6 +12,7 @@ from .util import JoinExpr, TableExpr, UnionExpr, parse_select_dsl
 SOURCE_TABLE_ALIAS = "A"
 OTHER_TABLE_ALIASES = "BCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+
 def select(
     source: pl.DataFrame,
     key: str,

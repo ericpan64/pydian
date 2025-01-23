@@ -35,8 +35,8 @@ def get(
     return partial(pydian.get, **kwargs)
 
 
-
 # TODO: Add `select` partial (1 param). Design choice on whether to support compound types
+
 
 def pipe(*funcs: ApplyFunc) -> ApplyFunc:
     """
