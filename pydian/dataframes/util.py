@@ -11,6 +11,9 @@ from parsimonious.nodes import Node, NodeVisitor
 from ..dicts.core import get
 from ..lib.types import KEEP
 from ..lib.util import flatten_sequence
+from .dsl.colnames import parse_colnames
+from .dsl.from_expr import parse_from
+from .dsl.group import parse_group
 
 COLNAMES_DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl/colnames.peg").read_text())
 FROM_DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl/from.peg").read_text())
@@ -37,13 +40,13 @@ class UnionExpr(FromExpr):
     pass
 
 @dataclass(frozen=True)
-class GroupExpr:
+class TableExpr:
     op_type: Literal["GROUPBY", "ORDERBY"]
     on_cols: list[str]
-    agg_fns: list[pl.Expr]
+    agg_fns: list[pl.Expr] | None = None
 
 
-SelectDslTreeResult: TypeAlias = tuple[list[pl.Expr], list[FromExpr], list[GroupExpr]]
+SelectDslTreeResult: TypeAlias = tuple[list[pl.Expr], list[FromExpr], list[TableExpr]]
 
 class SelectDSLVisitor(NodeVisitor):
     """Class for parsing the `select` DSL. NOTE: outputs with `parse_select_dsl`"""
@@ -115,45 +118,136 @@ class SelectDSLVisitor(NodeVisitor):
             return None
 
 
-def parse_select_dsl(key: str) -> tuple[list[pl.Expr], list[JoinExpr | UnionExpr], list[GroupExpr]]:
+def parse_select_dsl(key: str) -> tuple[list[pl.Expr], list[JoinExpr | UnionExpr], list[TableExpr]]:
     """
     Parses the corresponding key and returns a tuple containing:
       1. colname_expr: A list of polars expressions
       2. from_expr: A list of join expressions to apply
       3. table_expr: A list of grouped operations to apply
 
-    Grammar is defined in `dataframes/dsl.peg`
+    Grammar is defined in the DSL .peg files
     """
     # Split into different parts
     FROM_SPLIT = r"\s+from\s+"
     GROUP_SPLIT = "=>"
-    contains_from_expr = re.search(FROM_SPLIT, key, re.I)
-    contains_group_expr = re.search(GROUP_SPLIT, key)
-    if contains_from_expr and contains_group_expr:
-        # TODO
-        colname_expr_list = ...
-        from_expr_list = ...
-        group_expr_list = ...
-    elif contains_from_expr:
-        # TODO
-        colname_expr_list = ...
-        from_expr_list = ...
-        group_expr_list = []
-    elif contains_group_expr:
-        # TODO
-        colname_expr_list = ...
-        from_expr_list = []
-        group_expr_list = ...
-    else:
-        # TODO
-        colname_expr = ...
-        colname_expr_list = []
-        from_expr_list, group_expr_list = [], []
-
     
-    parsed_tree = SELECT_DSL_GRAMMAR.parse(key.replace(" ", ""))
-    # TODO: Split this out into different visitors
-    res = SelectDSLVisitor().visit(parsed_tree)
+    # First split on FROM
+    parts = re.split(FROM_SPLIT, key, flags=re.I, maxsplit=1)
+    colnames_part = parts[0].strip()
+    from_part = parts[1].strip() if len(parts) > 1 else None
+    
+    # Parse colnames
+    colname_result = parse_colnames(colnames_part)
+    colname_expr_list = []
+    
+    # Handle star operator first
+    if isinstance(colname_result["columns"], dict) and colname_result["columns"]["type"] == "star":
+        expr = pl.col("*")
+        if "filter" in colname_result:
+            expr = expr.filter(generate_polars_filter(colname_result["filter"]["expr"]))
+        colname_expr_list = [expr]
+    else:
+        # Handle column list
+        cols = colname_result["columns"]
+        if not isinstance(cols, list):
+            cols = [cols]
+        
+        # Process each column
+        for col in cols:
+            name = col["name"]
+            expr = pl.col(name)
+            
+            # Handle nested access
+            if "." in name:
+                parts = name.split(".")
+                expr = pl.col(parts[0])
+                try:
+                    for part in parts[1:]:
+                        expr = expr.struct.field(part)
+                    expr = expr.alias(name)
+                except pl.StructFieldNotFoundError:
+                    # If struct field not found, try treating it as a regular column
+                    expr = pl.col(name)
+            
+            # Handle arrow operations (column renaming)
+            if "arrow" in col:
+                for target in col["arrow"]["targets"]:
+                    expr = expr.alias(target)
+            
+            # Apply filter if present
+            if "filter" in colname_result:
+                expr = expr.filter(generate_polars_filter(colname_result["filter"]["expr"]))
+            
+            colname_expr_list.append(expr)
+    
+    # Handle from and group parts if present
+    from_expr_list = []
+    group_expr_list = []
+    
+    if from_part:
+        # Split on => if present
+        group_parts = from_part.split(GROUP_SPLIT, 1)
+        from_part = group_parts[0].strip()
+        
+        # Parse from expression
+        from_result = parse_from(from_part)
+        if isinstance(from_result, dict):
+            if from_result["type"] == "simple_join":
+                # Validate join columns exist in both tables
+                if "on" not in from_result:
+                    raise ValueError("Join operation requires 'on' clause")
+                join_cols = from_result["on"]["columns"]
+                from_expr_list.append(JoinExpr(
+                    lhs=from_result["left"],
+                    rhs=from_result["right"],
+                    join_type="LEFT" if from_result["op"] == "<-" else "INNER",
+                    on_cols=join_cols
+                ))
+            elif from_result["type"] == "union_expr":
+                tables = from_result["tables"]
+                # Create union expressions between consecutive tables
+                from_expr_list.extend(
+                    UnionExpr(lhs=tables[i], rhs=tables[i+1])
+                    for i in range(len(tables)-1)
+                )
+        
+        # Parse group expression if present
+        if len(group_parts) > 1:
+            group_part = group_parts[1].strip()
+            group_result = parse_group(group_part)
+            if "groupby" in group_result:
+                group_info = group_result["groupby"]
+                agg_fns = None
+                if "aggs" in group_info:
+                    agg_fns = []
+                    for agg in group_info["aggs"]:
+                        if agg == "all()":
+                            agg_fns.append(pl.all().name.suffix("_all"))
+                        elif agg == "n_unique()":
+                            agg_fns.append(pl.n_unique("*").name.suffix("_n_unique"))
+                        elif agg == "len()":
+                            agg_fns.append(pl.len().name.suffix("_len"))
+                        elif agg == "sum()":
+                            agg_fns.append(pl.sum().name.suffix("_sum"))
+                        elif agg == "mean()":
+                            agg_fns.append(pl.mean().name.suffix("_mean"))
+                        elif agg == "max()":
+                            agg_fns.append(pl.max().name.suffix("_max"))
+                        elif agg == "min()":
+                            agg_fns.append(pl.min().name.suffix("_min"))
+                        elif agg == "median()":
+                            agg_fns.append(pl.median().name.suffix("_median"))
+                group_expr_list.append(TableExpr(
+                    op_type="GROUPBY",
+                    on_cols=group_info["columns"],
+                    agg_fns=agg_fns
+                ))
+            if "orderby" in group_result:
+                group_expr_list.append(TableExpr(
+                    op_type="ORDERBY",
+                    on_cols=group_result["orderby"]["columns"]
+                ))
+    
     return (colname_expr_list, from_expr_list, group_expr_list)
 
 

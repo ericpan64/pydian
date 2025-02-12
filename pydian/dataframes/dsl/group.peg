@@ -4,16 +4,22 @@
 table_expr = groupby_expr? orderby_expr?  # NOTE: If both missing, raise error in code
 
 # === Actionable Units ===
-groupby_expr = ~"(?i)groupby" lbrack name_list rbrack
+groupby_expr = ~"(?i)groupby" lbrack group_spec rbrack
 orderby_expr = ~"(?i)orderby" lbrack name_list rbrack
 
 # === Intermediate Representation ===
+group_spec = name_list (pipe agg_list)?
+agg_list = agg_fn (comma agg_fn)*
+agg_fn = name lparen rparen
 name_list = name (comma name)*
 
 # === Primitives ===
 lbrack = "["
 rbrack = "]"
+lparen = "("
+rparen = ")"
 comma = ","
+pipe = "|"
 
 # === Lexemes ===
-name = ~"[a-zA-Z_][a-zA-Z0-9_]*"
+name = ~"[a-zA-Z_][a-zA-Z0-9_]*"  # Allow alphanumeric and underscore

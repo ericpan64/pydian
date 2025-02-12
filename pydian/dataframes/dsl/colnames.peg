@@ -1,15 +1,15 @@
 # === Select DSL - 1. Column names ===
 
 #  NOTE: Assume all whitespace is removed
-colname_expr = (star / colname_list) (filter_expr)?
+colname_expr = (star / colname_list) filter_expr?
 
 # === Actionable Units ===
 colname_list = name_expr (comma name_expr)*
 
 # === Intermediate Representation ===
-filter_expr = colon lbrack filter_cols rbrack
-name_expr = colname arrow_op?
-arrow_op = arrow lbrack colname (comma colname)* rbrack
+filter_expr = colon lbrack expr rbrack
+name_expr = (nested_name / name) arrow_op?
+arrow_op = arrow lbrack name (comma name)* rbrack
 
 # === Primitives ===
 lbrack = "["
@@ -18,9 +18,11 @@ comma = ","
 colon = ":"
 star = "*"
 arrow = "->"
+dot = "."
 
 # === Lexemes ===
-filter_cols = ~".*"  # NOTE: Assume this is python-like syntax, parsed in other AST code
-colname = (name / get_expr) # Try to match to plaintext name first
-get_expr = ~".*"  # Negative lookbehind ensures it doesn't end with "from"
-name = ~"[a-zA-Z_][a-zA-Z0-9_]*"
+expr = ~"[^]]*"  # Match anything except closing bracket
+nested_name = name (dot name_with_index)+  # One or more dot-separated names with optional indices
+name_with_index = name array_index?  # Name with optional array index
+array_index = lbrack ~"[0-9]+" rbrack  # Array index like [0]
+name = ~"[a-zA-Z_][a-zA-Z0-9_]*"  # Allow alphanumeric and underscore

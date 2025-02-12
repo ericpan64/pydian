@@ -44,59 +44,163 @@ def select(
 
     `rename` is the standard Polars API call and is called at the very end
     """
-    colname_expr_list, from_expr_list, table_expr_list = parse_select_dsl(key)
+    try:
+        colname_expr_list, from_expr_list, table_expr_list = parse_select_dsl(key)
+        res = source
 
-    raise RuntimeError("DEBUG: Parsed successfully!")
-    res = source
-
-    # 1. Do joins (if present)
-    #    Expect a series of `JoinExpr` which should be applied in-order
-    if len(from_expr_list) == 0 and others is not None:
-        raise RuntimeError("`others` provided but not used -- please remove to save memory!")
-    for from_expr in from_expr_list:
-        try:
+        # 1. Do joins (if present)
+        if len(from_expr_list) == 0 and others is not None:
+            raise RuntimeError("`others` provided but not used -- please remove to save memory!")
+        for from_expr in from_expr_list:
             # Assume the size of `others` matches things found in expression language
             assert others is not None  # TODO: remove this after testing
             lhs, rhs = _identify_lhs_rhs(res, others, from_expr)
             match from_expr:
                 case JoinExpr():
-                    # Perform the join
-                    res = lhs.join(rhs, on=from_expr.on_cols, how=from_expr.join_type.lower())
-                    # TODO: define behavior if there's no change after the join - `Err` or leave alone?
+                    # Check if either DataFrame is empty
+                    if lhs.height == 0 or rhs.height == 0:
+                        return Err("Cannot join with empty DataFrame")
+
+                    # Validate join columns exist in both tables
+                    for col in from_expr.on_cols:
+                        if col not in lhs.columns:
+                            return Err(f"Join column '{col}' not found in left table")
+                        if col not in rhs.columns:
+                            return Err(f"Join column '{col}' not found in right table")
+
+                    # Ensure join columns have compatible types
+                    for col in from_expr.on_cols:
+                        lhs_type = lhs[col].dtype
+                        rhs_type = rhs[col].dtype
+                        if lhs_type != rhs_type:
+                            # Try to cast to compatible type
+                            if lhs_type.is_numeric() and rhs_type.is_numeric():
+                                # Cast to higher precision
+                                if lhs_type.is_float() or rhs_type.is_float():
+                                    lhs = lhs.with_columns(pl.col(col).cast(pl.Float64))
+                                    rhs = rhs.with_columns(pl.col(col).cast(pl.Float64))
+                                else:
+                                    lhs = lhs.with_columns(pl.col(col).cast(pl.Int64))
+                                    rhs = rhs.with_columns(pl.col(col).cast(pl.Int64))
+                            else:
+                                # Convert to string for non-numeric types
+                                lhs = lhs.with_columns(pl.col(col).cast(pl.Utf8))
+                                rhs = rhs.with_columns(pl.col(col).cast(pl.Utf8))
+
+                    try:
+                        res = lhs.join(rhs, on=from_expr.on_cols, how=from_expr.join_type.lower(), coalesce=True)
+                    except pl.StructFieldNotFoundError as e:
+                        return Err(f"Join failed: {str(e)}")
                 case UnionExpr():
-                    # Perform the union
-                    res = lhs.vstack(rhs)
-                    # TODO: define `Err` behavior if union fails?
+                    # Check for incompatible columns
+                    lhs_cols = set(lhs.columns)
+                    rhs_cols = set(rhs.columns)
+                    if not (lhs_cols.issubset(rhs_cols) or rhs_cols.issubset(lhs_cols)):
+                        return Err("Cannot union tables with incompatible columns")
+                    
+                    # Ensure both dataframes have compatible schemas
+                    all_cols = sorted(lhs_cols.union(rhs_cols))
+                    
+                    # Create schema mapping for each column
+                    schema = {}
+                    for col in all_cols:
+                        if col in lhs_cols and col in rhs_cols:
+                            lhs_type = lhs[col].dtype
+                            rhs_type = rhs[col].dtype
+                            if lhs_type != rhs_type:
+                                # Use most permissive type
+                                if lhs_type.is_numeric() and rhs_type.is_numeric():
+                                    schema[col] = pl.Float64
+                                else:
+                                    schema[col] = pl.Utf8
+                        elif col in lhs_cols:
+                            schema[col] = lhs[col].dtype
+                        else:
+                            schema[col] = rhs[col].dtype
+                    
+                    # Cast columns to compatible types
+                    lhs_filled = lhs.with_columns([
+                        pl.lit(None).cast(schema[col]).alias(col)
+                        for col in all_cols
+                        if col not in lhs_cols
+                    ])
+                    rhs_filled = rhs.with_columns([
+                        pl.lit(None).cast(schema[col]).alias(col)
+                        for col in all_cols
+                        if col not in rhs_cols
+                    ])
+                    
+                    # Cast existing columns if needed
+                    for col in all_cols:
+                        if col in schema:
+                            if col in lhs_cols:
+                                lhs_filled = lhs_filled.with_columns(pl.col(col).cast(schema[col]))
+                            if col in rhs_cols:
+                                rhs_filled = rhs_filled.with_columns(pl.col(col).cast(schema[col]))
+                    
+                    # Perform the union with aligned columns
+                    res = lhs_filled.select(all_cols).vstack(rhs_filled.select(all_cols))
                 case _typ:
                     raise RuntimeError(f"Got unexpected operation type: {_typ}")
-        except pl.InvalidOperationError:
-            return Err(f"Got unexpected operation: {from_expr}")
 
-    # 2. Do select
-    try:
-        res = res.select(colname_expr_list)
-    except pl.ColumnNotFoundError as e:
-        return Err(f"Got unexpected column: {e}")
-
-    # 3. Do group operators (if present)
-    for table_expr in table_expr_list:
+        # 2. Do select
         try:
+            res = res.select(colname_expr_list)
+        except pl.StructFieldNotFoundError as e:
+            return Err(f"Column selection failed: {str(e)}")
+
+        # 3. Do group operators (if present)
+        for table_expr in table_expr_list:
             match table_expr.op_type:
                 case "GROUPBY":
-                    res = res.group_by(table_expr.on_cols, maintain_order=True).agg(
-                        table_expr.agg_fns
-                    )
+                    # Validate groupby columns exist
+                    missing_cols = [col for col in table_expr.on_cols if col not in res.columns]
+                    if missing_cols:
+                        return Err(f"Groupby columns not found: {', '.join(missing_cols)}")
+                    
+                    # Apply groupby with aggregation functions
+                    try:
+                        if table_expr.agg_fns:
+                            # Apply aggregation functions to all non-groupby columns
+                            agg_exprs = []
+                            for col in res.columns:
+                                if col not in table_expr.on_cols:
+                                    for agg_fn in table_expr.agg_fns:
+                                        if isinstance(agg_fn, str):
+                                            # Use the aggregation function name as suffix
+                                            agg_exprs.append(pl.col(col).agg_groups().alias(f"{col}_{agg_fn}"))
+                                        else:
+                                            # For custom expressions, use the column name as is
+                                            agg_exprs.append(pl.col(col).agg_groups())
+                            res = res.group_by(table_expr.on_cols, maintain_order=True).agg(agg_exprs)
+                        else:
+                            # Default to all() if no aggregation functions specified
+                            res = res.group_by(table_expr.on_cols, maintain_order=True).agg(pl.all())
+                    except pl.ColumnNotFoundError as e:
+                        return Err(f"Got unexpected column: {e}")
+                    except pl.StructFieldNotFoundError as e:
+                        return Err(f"Group operation failed: {str(e)}")
                 case "ORDERBY":
-                    res.sort(table_expr.on_cols)
+                    # Validate orderby columns exist
+                    missing_cols = [col for col in table_expr.on_cols if col not in res.columns]
+                    if missing_cols:
+                        return Err(f"Orderby columns not found: {', '.join(missing_cols)}")
+                    res = res.sort(table_expr.on_cols)
+                case _:
+                    raise RuntimeError(f"Got unexpected operation type: {table_expr.op_type}")
 
-        except pl.InvalidOperationError:
-            return Err(f"Failed to apply operation: {table_expr}")
+        # Do `rename` if provided and have a dataframe at the end
+        if rename and isinstance(res, pl.DataFrame):
+            res = res.rename(rename)
 
-    # Do `rename` if provided and have a dataframe at the end
-    if rename and isinstance(res, pl.DataFrame):
-        res = res.rename(rename)
+        return res
 
-    return res
+    except pl.ColumnNotFoundError as e:
+        return Err(f"Got unexpected column: {e}")
+    except pl.InvalidOperationError as e:
+        return Err(f"Got unexpected operation: {e}")
+    except (RuntimeError, ValueError, AssertionError) as e:
+        return Err(str(e))
 
 
 def _identify_lhs_rhs(
@@ -107,85 +211,10 @@ def _identify_lhs_rhs(
 
     E.g. `A` -> source, `B` -> others[0], `C` -> others[1], ... `Z` -> others[25]
     """
+    if isinstance(others, pl.DataFrame):
+        others = [others]
     lhs_idx = OTHER_TABLE_ALIASES.find(from_expr.lhs)
     rhs_idx = OTHER_TABLE_ALIASES.find(from_expr.rhs)
     lhs = source if (from_expr.lhs == SOURCE_TABLE_ALIAS) else others[lhs_idx - 1]
     rhs = source if (from_expr.rhs == SOURCE_TABLE_ALIAS) else others[rhs_idx - 1]
     return (lhs, rhs)
-
-
-def _try_groupby(
-    groupby_clause: str,
-    source: pl.DataFrame,
-    others: pl.DataFrame | list[pl.DataFrame] | None,  # unused
-    keep_order: bool = True,
-) -> pl.DataFrame | Err:
-    """
-    Allows the following shorthands for `group_by`:
-    - Use comma-delimited col names
-    - Specify aggregators after `|` using list or dict syntax
-        - For no aggregator specified, default to `.all()`
-        - Explicitly named aggregations will also rename resulting columns
-          (adds a suffix of the aggregation name, e.g. `colname_all`)
-
-    Examples:
-    - `"groupby[a]"` -- `group_by('a').all()`
-    - `"groupby[a, b]"` -- `group_by(['a', 'b']).all()`
-    - `"groupby[a | len()]"` -- `group_by('a').agg(pl.len().name.suffix('_len'))`
-    - `"groupby[a | mean()]"` -- `group_by('a').agg(pl.mean().name.suffix('_mean'))
-    - `"groupby[a | len(), mean()]"` -- `group_by('a').agg([pl.len().name.suffix('_len'), pl.mean().name.suffix('_mean')])
-
-    Supported aggregation functions:
-      NOTE: if an agg function is used, then the new column will have the agg name added as a suffix
-        AND if an agg function cannot be applied, the column remains unchanged (e.g. std() on a str)
-    - `all()`, `len()`, `n_unique()`
-    - `sum()`, `mean()`
-    - `max()`, `min()`, `median()`
-    """
-    # NOTE: assumes only one input table, fix with CFG implementation...
-    # HACK: handle default the simple way
-    DEFAULT_STR = "default"
-    # Parse `groupby_clause` str into halfs
-    STR_WITHIN_BRACKETS = r"\[([^\]]+)\]"
-    bracket_str_list: list[str] = re.findall(STR_WITHIN_BRACKETS, groupby_clause)
-    if not bracket_str_list:
-        raise RuntimeError(f"Invalid structure for `groupby` clause: {groupby_clause}")
-    bracket_str: str = bracket_str_list[0].replace(" ", "")
-    if "|" in bracket_str:
-        col_names, agg_names = bracket_str.split("|")
-    else:
-        # Default to `all()`
-        col_names, agg_names = bracket_str, DEFAULT_STR
-
-    # Organize appropriate aggregation function
-    agg_list = agg_names.split(",")
-    # NOTE: `coalesce` keeps the first non-null value. So we try the aggregation, however
-    #       if it fails, then we take the `all` aggregation and keep original name to note unchanged
-    agg_mapping = {
-        DEFAULT_STR: pl.all(),
-        "all()": pl.all().name.suffix(
-            "_all"
-        ),  # If this is explicitly specified, then add the suffix
-        "len()": pl.all().len().name.suffix("_len"),
-        "n_unique()": pl.n_unique("*").name.suffix("_n_unique"),
-        "sum()": pl.all().sum().name.suffix("_sum"),
-        "mean()": pl.all().mean().name.suffix("_mean"),
-        "max()": pl.all().max().name.suffix("_max"),
-        "min()": pl.all().min().name.suffix("_min"),
-        "median()": pl.all().median().name.suffix("_median"),
-    }
-    try:
-        mapped_agg_list = [agg_mapping[a] for a in agg_list]
-    except KeyError as e:
-        raise ValueError(
-            f"Unsupported aggregation (if in polars, please open GitHub to suggest): {str(e)}"
-        )
-
-    # Perform the groupby
-    col_list = col_names.split(",")
-    res = source.group_by(col_list, maintain_order=keep_order).agg(mapped_agg_list)
-
-    if res.is_empty():
-        return Err("Dataframe after `group_by` is empty")
-
-    return res

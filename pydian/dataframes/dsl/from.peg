@@ -1,19 +1,18 @@
 # === Select DSL - 2. From expression ===
 
 #  NOTE: Assume all whitespace is removed
-from_expr = join_expr / union_expr
+from_expr = (union_expr / join_expr / subquery / table_alias) ~"$"
 
 # === Actionable Units ===
-join_expr = join_options (join_op table_alias on_expr?)*  # TODO: In-code, expect `on_expr` for joins
-join_options = simple_join / subquery / (lparen join_expr rparen)
+join_expr = (table_alias / empty_alias) join_part+
+join_part = join_op table_alias on_expr?
 union_expr = table_alias (pplus table_alias)+
+subquery = lparen select_expr rparen
 
 # === Intermediate Representation ===
-simple_join = table_alias join_op table_alias on_expr
-subquery = lparen select_expr rparen
-select_expr = ~".*"  # Assume select expression can be expressed as partial
-join_op = (larrow / diamond / pplus)
-on_expr = ~"(?i)\bon\b" lbrack name_list rbrack
+select_expr = ~"[^)]*"  # Match anything except closing parenthesis
+join_op = (larrow / diamond)
+on_expr = ~"(?i)on" lbrack name_list rbrack
 name_list = name (comma name)*
 
 # === Primitives ===
@@ -26,7 +25,7 @@ pplus = "++"
 larrow = "<-"
 diamond = "<>"
 
-
 # === Lexemes ===
-name = ~"[a-zA-Z_][a-zA-Z0-9_]*"
-table_alias = ~"[A-Z]"
+name = ~"[a-zA-Z_][a-zA-Z0-9_]*"  # Allow alphanumeric and underscore
+table_alias = ~"[A-Z]"  # Single uppercase letter
+empty_alias = ~""  # Empty string
