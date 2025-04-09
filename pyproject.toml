@@ -5,7 +5,7 @@ description = "Library for pythonic data interchange"
 authors = ["Eric Pan <epan64.dev@gmail.com>"]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.10"
 result = "^0.17.0"
 parsimonious = "^0.10.0"
 pydantic = "^2.7.1"

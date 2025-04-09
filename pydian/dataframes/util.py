@@ -20,14 +20,16 @@ FROM_DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl/from.peg").read_t
 GROUP_DSL_GRAMMAR = Grammar(Path(__file__).parent.joinpath("dsl/group.peg").read_text())
 
 # fmt: off
-TableAlias: TypeAlias = Literal["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",   
+TableAlias: TypeAlias = Literal["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
                                 "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
 # fmt: on
+
 
 @dataclass(frozen=True)
 class FromExpr:
     lhs: TableAlias
     rhs: TableAlias
+
 
 @dataclass(frozen=True)
 class JoinExpr(FromExpr):
@@ -39,6 +41,7 @@ class JoinExpr(FromExpr):
 class UnionExpr(FromExpr):
     pass
 
+
 @dataclass(frozen=True)
 class TableExpr:
     op_type: Literal["GROUPBY", "ORDERBY"]
@@ -48,73 +51,142 @@ class TableExpr:
 
 SelectDslTreeResult: TypeAlias = tuple[list[pl.Expr], list[FromExpr], list[TableExpr]]
 
-class SelectDSLVisitor(NodeVisitor):
-    """Class for parsing the `select` DSL. NOTE: outputs with `parse_select_dsl`"""
 
-    # === Top-level ===
-    def visit_select_expr(self, node: Node, visited_children: Sequence[Any]) -> SelectDslTreeResult:
-        """
-        # TODO: How does this handle recursive structure? Does it need to?
-        #       ... to start: KISS!
-        Parses the select expression and returns a list of operations to apply.
+class ColnameDSLVisitor(NodeVisitor):
+    """Visitor for parsing column name expressions in the select DSL."""
 
-         Each operation contains 3 things:
-            1. A list of polars expressions
-            2. (if present) A tuple of join operations to apply in-order
-            3. (if present) A tuple of other operations to apply in-rder
-        """
-        # Process `colname_expr`
-        colname_expr_list: list[pl.Expr] = []
+    grammar = COLNAMES_DSL_GRAMMAR
 
-        # Process `(from_expr)?`
-        from_expr_list: list[JoinExpr] = []
+    def visit_colname_expr(
+        self, node: Node, visited_children: Sequence[Any]
+    ) -> list[pl.Expr] | KEEP:
+        """Handle expressions like 'a, b, c' or '*'."""
+        cols, filter_expr = visited_children
+        if filter_expr:
+            if isinstance(cols, KEEP):
+                return KEEP(filter_expr[0])
+            return [col.filter(filter_expr[0]) for col in flatten_sequence(cols)]
+        return cols
 
-        # Process `(table_expr)?`
-        table_expr_list: list[GroupExpr] = []
+    def visit_colname_list(self, node: Node, visited_children: Sequence[Any]) -> list[pl.Expr]:
+        """Handle comma-separated column lists."""
+        first, rest = visited_children
+        return [first] + [col for _, col in rest]
 
-        return (colname_expr_list, from_expr_list, table_expr_list)
+    def visit_name_expr(
+        self, node: Node, visited_children: Sequence[Any]
+    ) -> pl.Expr | list[pl.Expr]:
+        """Handle column names with optional arrow operations."""
+        name, arrow_op = visited_children
+        if arrow_op:
+            nested_cols = arrow_op[0]
+            return [pl.col(name).struct.field(col) for col in nested_cols]
+        return pl.col(name)
 
-    # === Actionable Units ===
-    def visit_colname_expr(self, node: Node, visited_children: Sequence[Any]) -> list[pl.Expr]:
-        """ """
-        ...
+    def visit_star(self, node: Node, visited_children: Sequence[Any]) -> KEEP:
+        """Handle '*' expressions."""
+        return KEEP("*")
 
-    def visit_from_expr(self, node: Node, visited_children: Sequence[Any]):
-        ...
+    def visit_filter_expr(self, node: Node, visited_children: Sequence[Any]) -> ast.Expression:
+        """Handle filter expressions in square brackets."""
+        _, _, filter_cols, _ = visited_children
+        return ast.parse(filter_cols.text.strip(), mode="eval").body
 
-    def visit_op_expr(self, node: Node, visited_children: Sequence[Any]):
-        ...
-
-    # === Intermediate Representation ===
-    def visit_name_arrow(self, node: Node, visited_children: Sequence[Any]):
-        ...
-    
-    def filter_expr(self, node: Node, visited_children: Sequence[Any]):
-        ...
-
-    def visit_get_expr(self, node: Node, visited_children: Sequence[Any]):
-        return node.text
-
-    ...
-
-    # === Primitives / Lexemes (non-ignored) ===
-    def visit_name(self, node: Node, visited_children: Sequence[Any]) -> str:
-        return node.text
-
-    # === ... everything else ===
     def generic_visit(
         self, node: Node, visited_children: Sequence[Any]
     ) -> Sequence[Any] | Any | None:
-        """Default handler for unspecified rules"""
-        # Generic behavior: return either
-        #   1) multiple remaining child nodes
-        #   2) a single remaining child node
-        #   3) `None` if there's no children
-        if len(visited_children) > 1:
-            return visited_children
-        elif len(visited_children) == 1:
-            return visited_children[0]
+        """Default handler for unspecified rules."""
+        return visited_children or node.text
+
+
+class FromDSLVisitor(NodeVisitor):
+    """Visitor for parsing table operations in the from clause."""
+
+    grammar = FROM_DSL_GRAMMAR
+
+    def visit_from_expr(
+        self, node: Node, visited_children: Sequence[Any]
+    ) -> list[JoinExpr | UnionExpr]:
+        """Handle top-level from expressions."""
+        return visited_children[0]
+
+    def visit_join_expr(self, node: Node, visited_children: Sequence[Any]) -> list[JoinExpr]:
+        """Handle join expressions."""
+        base, joins = visited_children[0], visited_children[1]
+        result = [base]
+        for join in joins:
+            if join:
+                result.append(join)
+        return result
+
+    def visit_simple_join(self, node: Node, visited_children: Sequence[Any]) -> JoinExpr:
+        """Handle basic join operations."""
+        lhs, join_op, rhs, on_expr = visited_children
+        join_type: Literal["LEFT", "INNER"] = "LEFT" if join_op == "<-" else "INNER"
+        return JoinExpr(lhs, rhs, join_type, on_expr)
+
+    def visit_union_expr(self, node: Node, visited_children: Sequence[Any]) -> list[UnionExpr]:
+        """Handle union operations."""
+        lhs, unions = visited_children
+        return [UnionExpr(lhs, rhs) for _, rhs in unions]
+
+    def generic_visit(
+        self, node: Node, visited_children: Sequence[Any]
+    ) -> Sequence[Any] | Any | None:
+        """Default handler for unspecified rules."""
+        return visited_children or node.text
+
+
+class GroupDSLVisitor(NodeVisitor):
+    """Visitor for parsing group and order operations."""
+
+    grammar = GROUP_DSL_GRAMMAR
+
+    def visit_table_expr(self, node: Node, visited_children: Sequence[Any]) -> list[GroupExpr]:
+        """Handle top-level group/order expressions."""
+        groupby, orderby = visited_children
+        result = []
+        if groupby and groupby[0]:
+            result.append(groupby[0])
+        if orderby and orderby[0]:
+            result.append(orderby[0])
+        return result
+
+    def visit_groupby_expr(self, node: Node, visited_children: Sequence[Any]) -> GroupExpr:
+        """Handle groupby expressions."""
+        _, _, cols, _ = visited_children
+        final_cols = [col.value if isinstance(col, KEEP) else col for col in cols]
+        return GroupExpr("GROUPBY", final_cols, [])
+
+    def visit_orderby_expr(self, node: Node, visited_children: Sequence[Any]) -> GroupExpr:
+        """Handle orderby expressions."""
+        _, _, cols, _ = visited_children
+        final_cols = [col.value if isinstance(col, KEEP) else col for col in cols]
+        return GroupExpr("ORDERBY", final_cols, [])
+
+    def generic_visit(
+        self, node: Node, visited_children: Sequence[Any]
+    ) -> Sequence[Any] | Any | None:
+        """Default handler for unspecified rules."""
+        return visited_children or node.text
+
+
+def parse_select_dsl(key: str) -> SelectDslTreeResult:
+    """Parse a select DSL expression into its components."""
+    # Clean input
+    key = re.sub(r"\s+", " ", key.strip())
+
+    # Split into components
+    parts = re.split(r"\s+from\s+|\s*=>\s*", key, flags=re.I)
+
+    if len(parts) == 3:  # All components present
+        colname_part, from_part, group_part = parts
+    elif len(parts) == 2:
+        if "=>" in key:
+            colname_part, group_part = parts
+            from_part = None
         else:
+<<<<<<< HEAD
             return None
 
 
@@ -248,6 +320,28 @@ def parse_select_dsl(key: str) -> tuple[list[pl.Expr], list[JoinExpr | UnionExpr
                     on_cols=group_result["orderby"]["columns"]
                 ))
     
+=======
+            colname_part, from_part = parts
+            group_part = None
+    else:
+        colname_part = parts[0]
+        from_part = group_part = None
+
+    # Parse each component
+    colname_visitor = ColnameDSLVisitor()
+    colname_expr_list = colname_visitor.visit(COLNAMES_DSL_GRAMMAR.parse(colname_part))
+
+    from_expr_list = []
+    if from_part:
+        from_visitor = FromDSLVisitor()
+        from_expr_list = from_visitor.visit(FROM_DSL_GRAMMAR.parse(from_part))
+
+    group_expr_list = []
+    if group_part:
+        group_visitor = GroupDSLVisitor()
+        group_expr_list = group_visitor.visit(GROUP_DSL_GRAMMAR.parse(group_part))
+
+>>>>>>> 97cfa4773b82485c69ab21fbdbec758638c564b3
     return (colname_expr_list, from_expr_list, group_expr_list)
 
 
