@@ -4,13 +4,20 @@ pydian is a pure Python library for readable and repeatable data mappings. pydia
 
 Using pydian, developers can collaboratively and incrementally write data mappings that are expressive, safe, and reusable. Similar to how libraries like React were able to streamline UI components for frontend development, pydian aims to streamline data transformations for backend development.
 
+## Installation
+Install with pip:
+
+```bash
+pip install pydian
+# For DataFrame support
+pip install "pydian[dataframes]"
+```
+
 ## Overview
 pydian currently offers an ergonomic API for:
 - Working with `dict` data
-- Working with `DataFrame` data
+- Working with `polars.DataFrame` data
 - Validating `dict` data using the `Rule` and `RuleGroup` framework
-
-All the core API functions are pure transforms, so you can trust that code will be consistent between runs and when sharing! For any exceptions, the function README will have an explicit NOTE.
 
 ## Example
 The key idea behind is the following: `get` data from an object, and if it succeeded, do stuff to it.
