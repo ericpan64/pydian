@@ -1,3 +1,9 @@
+# AI things
+.specstory
+.cursor/*
+.cursorindexingignore
+.windsurfrules
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
