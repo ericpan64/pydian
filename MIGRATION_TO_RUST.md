@@ -28,6 +28,67 @@ pydian/               # Cargo workspace root
 
 ## 4. Module-by-Module Plan
 
+### 4.0 partials
+- **Enum-based primitives**: define `Transform` and `Condition` enums in a `mapper::partials` submodule to represent common helpers.
+  ```rust
+  #[derive(Clone)]
+  pub enum Transform {
+      Add(i64),
+      Multiply(i64),
+      Slice(usize),
+      Custom(Box<dyn Fn(Value) -> Value + Send + Sync>),
+  }
+  #[derive(Clone)]
+  pub enum Condition {
+      Equals(Value),
+      Gt(Value),
+      Lt(Value),
+      // … other built-ins
+      Custom(Box<dyn Fn(&Value) -> bool + Send + Sync>),
+  }
+  impl Transform {
+      pub fn apply(&self, v: Value) -> Value {
+          match self {
+              Transform::Add(x) => json!(v.as_i64().unwrap_or(0) + x),
+              Transform::Custom(f) => f(v),
+              // …
+          }
+      }
+  }
+  impl Condition {
+      pub fn check(&self, v: &Value) -> bool {
+          match self {
+              Condition::Equals(val) => v == val,
+              Condition::Custom(f) => f(v),
+              // …
+          }
+      }
+  }
+  ```
+- **Python binding**: use PyO3 to expose these enums as first-class Python APIs.
+  ```rust
+  #[pyclass]
+  pub enum Transform { /* same variants */ }
+  #[pymethods]
+  impl Transform {
+      #[staticmethod] pub fn add(x: i64) -> Self { Transform::Add(x) }
+      // … other helpers
+  }
+  ```
+- **Usage in Python**:
+  ```python
+  from pydian_rs import Transform, Mapper
+  mapper = Mapper()
+      .map("field", Transform.add(10))
+      .drop_root()
+      .run(data)
+  ```
+- **Advantages**:
+  - Clean, explicit Python API with docstrings and IDE support
+  - No opaque Rust closures exposed to Python
+  - Rust implementation still efficient via enum dispatch
+- **Custom cases**: `Transform::Custom` and `Condition::Custom` allow arbitrary closures when needed
+
 ### 4.1 dicts
 - **Error Handling:** use `anyhow::Result` for public APIs and `with_context` for richer errors.
 - **PathSegment & Parser:**
