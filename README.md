@@ -1,5 +1,7 @@
 # pydian - <ins alt="p̲y̲">py</ins>thonic <ins alt="d̲">d</ins>ata <ins alt="i̲">i</ins>nterch<ins alt="a̲n̲">an</ins>ge
 
+> NOTE: this library has been rewritten! Please see [chidian](https://github.com/ericpan64/chidian)
+
 pydian is a pure Python library for readable and repeatable data mappings. pydian reduces boilerplate for data manipulation and provides a framework for expressive data wrangling.
 
 Using pydian, developers can collaboratively and incrementally write data mappings that are expressive, safe, and reusable. Similar to how libraries like React were able to streamline UI components for frontend development, pydian aims to streamline data transformations for backend development.

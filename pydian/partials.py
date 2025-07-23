@@ -1,6 +1,8 @@
 from collections.abc import Callable, Container, Iterable, Reversible
 from functools import partial
 from itertools import islice
+from operator import add as op_add, sub as op_sub, mul as op_mul, truediv as op_truediv
+from operator import eq, gt as op_gt, lt as op_lt, ge, le, ne, contains
 from typing import Any, Type, TypeVar
 
 from result import Err, Ok
@@ -11,6 +13,11 @@ from pydian.lib.types import DROP, ApplyFunc, ConditionalCheck
 """
 `pydian` Wrappers
 """
+
+
+def _flip(func: Callable[[Any, Any], Any]) -> Callable[[Any, Any], Any]:
+    """Flips the order of arguments for a binary function"""
+    return lambda a, b: func(b, a)
 
 
 def get(
@@ -58,12 +65,22 @@ Generic Wrappers
 """
 
 
+class _Echo:
+    """Callable that always returns a fixed value"""
+    def __init__(self, value: Any):
+        self.value = value
+    
+    def __call__(self, _: Any) -> Any:
+        return self.value
+
+
 def do(func: Callable, *args: Any, **kwargs: Any) -> ApplyFunc:
     """
     Generic partial wrapper for functions.
 
     Starts at the second parameter when using *args (as opposed to the first).
     """
+    # Need to use lambda here because partial would bind the first parameter
     return lambda x: func(x, *args, **kwargs)
 
 
@@ -71,42 +88,42 @@ def echo(v: Any) -> ApplyFunc:
     """
     Function that returns the value exactly as-is
     """
-    return lambda _: v
+    return _Echo(v)
 
 
 def length(n: int) -> ApplyFunc:
-    return lambda v: len(v) == n
+    return partial(lambda val, num: len(val) == num, num=n)
 
 
 def add(value: Any, before: bool = False) -> ApplyFunc:
     if before:
-        return lambda v: value + v
-    return lambda v: v + value
+        return partial(op_add, value)
+    return partial(_flip(op_add), value)
 
 
 def subtract(value: Any, before: bool = False) -> ApplyFunc:
     if before:
-        return lambda v: value - v
-    return lambda v: v - value
+        return partial(op_sub, value)
+    return partial(_flip(op_sub), value)
 
 
 def multiply(value: Any, before: bool = False) -> ApplyFunc:
     if before:
-        return lambda v: value * v
-    return lambda v: v * value
+        return partial(op_mul, value)
+    return partial(_flip(op_mul), value)
 
 
 def divide(value: Any, before: bool = False) -> ApplyFunc:
     if before:
-        return lambda v: value / v
-    return lambda v: v / value
+        return partial(op_truediv, value)
+    return partial(_flip(op_truediv), value)
 
 
 T = TypeVar("T", list[Any], tuple[Any])
 
 
 def keep(n: int) -> ApplyFunc | Callable[[T], T]:
-    return lambda it: it[:n]
+    return partial(lambda num, it: it[:num], num=n)
 
 
 def index(idx: int) -> ApplyFunc | Callable[[Reversible], Any]:
@@ -124,55 +141,55 @@ def index(idx: int) -> ApplyFunc | Callable[[Reversible], Any]:
 def equals(value: Any) -> ConditionalCheck:
     # if type(value) == pl.DataFrame:
     #     return lambda df: df.equals(value)
-    return lambda v: v == value
+    return partial(eq, value)
 
 
 def gt(value: Any) -> ConditionalCheck:
-    return lambda v: v > value
+    return partial(_flip(op_gt), value)
 
 
 def lt(value: Any) -> ConditionalCheck:
-    return lambda v: v < value
+    return partial(_flip(op_lt), value)
 
 
 def gte(value: Any) -> ConditionalCheck:
-    return lambda v: v >= value
+    return partial(_flip(ge), value)
 
 
 def lte(value: Any) -> ConditionalCheck:
-    return lambda v: v <= value
+    return partial(_flip(le), value)
 
 
 def equivalent(value: Any) -> ConditionalCheck:
-    return lambda v: v is value
+    return partial(lambda val, v: v is val, val=value)
 
 
 def contains(value: Any) -> ConditionalCheck:
-    return lambda container: value in container
+    return partial(contains, value)
 
 
 def contained_in(container: Container) -> ConditionalCheck:
-    return lambda v: v in container
+    return partial(lambda cont, v: v in cont, cont=container)
 
 
 def not_equal(value: Any) -> ConditionalCheck:
-    return lambda v: v != value
+    return partial(ne, value)
 
 
 def not_equivalent(value: Any) -> ConditionalCheck:
-    return lambda v: v is not value
+    return partial(lambda val, v: v is not val, val=value)
 
 
 def not_contains(value: Any) -> ConditionalCheck:
-    return lambda container: value not in container
+    return partial(lambda val, container: val not in container, val=value)
 
 
 def not_contained_in(container: Container) -> ConditionalCheck:
-    return lambda v: v not in container
+    return partial(lambda cont, v: v not in cont, cont=container)
 
 
 def isinstance_of(type_: Type) -> ConditionalCheck:
-    return lambda v: isinstance(v, type_)
+    return partial(lambda t, v: isinstance(v, t), t=type_)
 
 
 """
